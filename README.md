@@ -1,6 +1,7 @@
 # Mortician
-<center><img src="mortician.png" style="width:20%;"/><br>
-A tool for quickly generating postmortem reports.</center>
+<img src="mortician.png" style="width:40%;"/>
+
+A tool for quickly generating postmortem reports.
 
 ## Installation
 1. Clone the project into a local directoy 
