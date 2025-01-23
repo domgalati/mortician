@@ -1,6 +1,6 @@
 import argparse
 from .templates import DEFAULT_POSTMORTEM
-from .utils import create_postmortem, edit_postmortem, smart_id_from_title
+from .utils import create_postmortem, edit_postmortem, smart_id_from_title, guided_input
 from .ui import show_postmortem
 
 def main():
@@ -13,6 +13,8 @@ def main():
     # create <issue_id>
     create_parser = subparsers.add_parser("create", help="Create a new postmortem")
     create_parser.add_argument("issue_id", help="Identifier for the postmortem")
+    create_parser.add_argument("--guide", action="store_true", help="Use guided creation mode")
+
 
     # edit <issue_id> [--status --owner --summary --timeline --add-entry ...]
     edit_parser = subparsers.add_parser("edit", help="Edit an existing postmortem")
@@ -44,7 +46,10 @@ def main():
     args = parser.parse_args()
 
     if args.command == "create":
-        create_postmortem(args.issue_id, smart_id_from_title)
+        issue_id = create_postmortem(args.issue_id, smart_id_from_title)
+        if args.guide:
+            data = guided_input()
+            edit_postmortem(issue_id, data)
     elif args.command == "edit":
         edit_postmortem(args.issue_id, args)
     elif args.command == "show":

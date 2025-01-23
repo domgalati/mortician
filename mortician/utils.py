@@ -23,11 +23,56 @@ def create_postmortem(title, smart_id_generator):
     print(f"Postmortem created with id: '{issue_id}'")
     return issue_id    
 
+def guided_input():
+    """Interactive prompt for postmortem creation"""
+    data = DEFAULT_POSTMORTEM.copy()
+    
+    print("\n=== Guided Postmortem Creation ===")
+    while True:
+        print("\nSelect status:")
+        print("1. Unresolved")
+        print("2. Temporary Resolution")
+        print("3. Resolved")
+        status_choice = input("Enter choice (1-3): ")
+        if status_choice == "1":
+            data["overview"]["status"] = "Unresolved"
+            break
+        elif status_choice == "2":
+            data["overview"]["status"] = "Temporary Resolution"
+            break
+        elif status_choice == "3":
+            data["overview"]["status"] = "Resolved"
+            break
+        print("Invalid choice. Please select 1, 2, or 3.")
+    data["incident_owner"] = input("Incident Owner: ")
+    data["incident_participants"] = input("Incident Participants (comma separated): ").split(",")
+    data["incident_summary"] = input("Incident Summary: ")
+    
+    print("\n=== Impact & Severity ===")
+    data["impact_and_severity"]["affected_services"] = input("Affected Services: ")
+    data["impact_and_severity"]["duration_of_outage"] = input("Duration of Outage: ")
+    data["impact_and_severity"]["business_impact"] = input("Business Impact: ")
+    
+    data["root_cause"] = input("\nRoot Cause: ")
+    
+    print("\n=== Resolution ===")
+    data["resolution"]["temporary_fix"] = input("Temporary Fix: ")
+    data["resolution"]["permanent_fix"] = input("Permanent Fix: ")
+    
+    return data
+
 def edit_postmortem(issue_id, args):
     """Edit specific fields of a postmortem based on CLI arguments."""
     data = load_postmortem(issue_id)
     if data is None:
         print(f"No postmortem found for issue: {issue_id}")
+        return
+
+    # Handle direct dictionary updates
+    if isinstance(args, dict):
+        data.update(args)
+        save_postmortem(issue_id, data)
+        print(f"Postmortem '{issue_id}' updated successfully.")
         return
 
     if args.status:
