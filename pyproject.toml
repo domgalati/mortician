@@ -1,0 +1,18 @@
+[project]
+name = "mortician"
+version = "0.1.0"
+description = "A utility for creating and editing postmortems"
+authors = [
+    { name = "Domenick Galati", email = "domenickgalati@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["postmortem", "analysis", "automation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+]
+
+[project.scripts]
+mortician = "mortician.main:main"
