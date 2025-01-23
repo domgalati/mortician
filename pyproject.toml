@@ -14,5 +14,8 @@ classifiers = [
 dependencies = [
 ]
 
+[project.scripts]
+mortician = "mortician.main:main"
+
 [tool.setuptools]
 packages = ["mortician"]
