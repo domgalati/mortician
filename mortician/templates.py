@@ -6,7 +6,7 @@ DEFAULT_POSTMORTEM = {
         "status": "",  # "Unresolved", "Temporary Resolution", or "Resolved"
     },
     "incident_owner": "",
-    "incident_participants": [],
+    "incident_participants": "",
     "incident_summary": "",
     "impact_and_severity": {
         "affected_services": "",

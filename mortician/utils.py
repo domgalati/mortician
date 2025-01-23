@@ -34,6 +34,8 @@ def edit_postmortem(issue_id, args):
         data["overview"]["status"] = args.status
     if args.owner:
         data["incident_owner"] = args.owner
+    if args.participants:
+        data["incident_participants"] = args.participants
     if args.summary:
         data["incident_summary"] = args.summary
     if args.root_cause:

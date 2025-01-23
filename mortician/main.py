@@ -19,6 +19,7 @@ def main():
     edit_parser.add_argument("issue_id", help="Identifier for the postmortem")
     edit_parser.add_argument("--status", help="Update the status")
     edit_parser.add_argument("--owner", help="Update the incident owner")
+    edit_parser.add_argument("--participants", help="Update the participants")
     edit_parser.add_argument("--summary", help="Update the incident summary")
     edit_parser.add_argument("--root_cause", help="Update the root cause")
     edit_parser.add_argument("--temp_fix", help="Update the temporary fix")
