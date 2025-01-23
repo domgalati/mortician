@@ -1,13 +1,13 @@
 def json_to_markdown(data):
     """Convert a postmortem JSON structure into a formatted Markdown string."""
     lines = []
-    
+
     # Overview
     lines.append(f"# {data['overview'].get('date', '')}: {data['overview'].get('incident_title', '')}")
     lines.append("## Overview")
     lines.append(f"**Time Created:** {data['overview'].get('time', '')}\\")
     lines.append(f"**Status:** {data['overview'].get('status', '')}")
-    
+
     # Incident Owner & Participants
     lines.append("\n## Incident Owner")
     lines.append(data.get("incident_owner", ""))

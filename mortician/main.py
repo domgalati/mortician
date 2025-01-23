@@ -1,7 +1,7 @@
 import argparse
-from mortician.templates import DEFAULT_POSTMORTEM
-from mortician.utils import create_postmortem, edit_postmortem, smart_id_from_title
-from mortician.ui import show_postmortem
+from .templates import DEFAULT_POSTMORTEM
+from .utils import create_postmortem, edit_postmortem, smart_id_from_title
+from .ui import show_postmortem
 
 def main():
     parser = argparse.ArgumentParser(
