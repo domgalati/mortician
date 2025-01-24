@@ -2,7 +2,7 @@ import json
 from .utils import load_postmortem
 from .formatter import json_to_markdown
 
-def show_postmortem(issue_id=None, status_filter=None):
+def show_postmortem(issue_id=None, status_filter=None, date_filter=None):
     """Display postmortems."""
     from .utils import POSTMORTEMS_DIR
     postmortem_files = list(POSTMORTEMS_DIR.glob("*.json"))
@@ -37,10 +37,21 @@ def show_postmortem(issue_id=None, status_filter=None):
             if not all_postmortems:
                 print(f"No postmortems found with status '{status_filter}'.")
                 return
+            
+        # Filter by date if requested
+        if date_filter:
+            all_postmortems = [
+                pm for pm in all_postmortems if pm["date"] == date_filter
+            ]
+            if not all_postmortems:
+                print(f"No postmortems found with date '{date_filter}'.")
+                return
 
         # Display all matching postmortems
+        print("Mortician Postmortems:")
         print(f"{'ID':<15} {'Title':<30} {'Status':<15} {'Date':<15}")
         print("-" * 75)
         for pm in all_postmortems:
-            truncated_title = pm['title'][:27] + "..." if len(pm['title']) > 30 else pm['title']
-            print(f"{pm['id']:<15} {truncated_title:<30} {pm['status']:<15} {pm['date']:<15}")
+            truncated_title = pm['title'][:28] + ".." if len(pm['title']) > 30 else pm['title']
+            truncated_status = pm['status'][:13] + ".." if len(pm['status']) > 15 else pm['status']
+            print(f"{pm['id']:<15} {truncated_title:<30} {truncated_status:<15} {pm['date']:<15}")

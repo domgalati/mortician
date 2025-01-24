@@ -29,6 +29,7 @@ def guided_input():
     
     print("\n=== Guided Postmortem Creation ===")
     while True:
+        print("\n=== Resolution ===")
         print("\nSelect status:")
         print("1. Unresolved")
         print("2. Temporary Resolution")
@@ -39,9 +40,11 @@ def guided_input():
             break
         elif status_choice == "2":
             data["overview"]["status"] = "Temporary Resolution"
+            data["resolution"]["temporary_fix"] = input("Temporary Fix: ")
             break
         elif status_choice == "3":
             data["overview"]["status"] = "Resolved"
+            data["resolution"]["permanent_fix"] = input("Permanent Fix: ")
             break
         print("Invalid choice. Please select 1, 2, or 3.")
     data["incident_owner"] = input("Incident Owner: ")
@@ -54,10 +57,27 @@ def guided_input():
     data["impact_and_severity"]["business_impact"] = input("Business Impact: ")
     
     data["root_cause"] = input("\nRoot Cause: ")
-    
-    print("\n=== Resolution ===")
-    data["resolution"]["temporary_fix"] = input("Temporary Fix: ")
-    data["resolution"]["permanent_fix"] = input("Permanent Fix: ")
+
+    while True:
+        tl_choice = input("Do you want to add items to the timeline? (y/n): ")
+        if tl_choice.lower() == "y":
+            while True:
+                time = input("Time (HH:MM): ")
+                action = input("Action/Event: ")
+                
+                timeline_entry = {
+                    "time": time,
+                    "action": action
+                }
+                data["timeline"].append(timeline_entry)
+                
+                another = input("Add another timeline entry? (y/n): ")
+                if another.lower() != "y":
+                    break
+            break
+        elif tl_choice.lower() == "n":
+            break
+        print("Invalid choice. Please enter y or n.")
     
     return data
 
@@ -77,6 +97,10 @@ def edit_postmortem(issue_id, args):
 
     if args.status:
         data["overview"]["status"] = args.status
+        if args.status.lower() == "resolved":
+            data["resolution"]["permanent_fix"] = input("Enter permanent fix: ")
+        elif args.status.lower() == "temporary resolution":
+            data["resolution"]["temporary_fix"] = input("Enter temporary fix: ")
     if args.owner:
         data["incident_owner"] = args.owner
     if args.participants:

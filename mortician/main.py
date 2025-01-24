@@ -42,6 +42,7 @@ def main():
     show_parser = subparsers.add_parser("show", help="Show details of a postmortem or list all postmortems")
     show_parser.add_argument("issue_id", nargs="?", help="Identifier for the postmortem (optional)")
     show_parser.add_argument("--status", help="Filter postmortems by status (e.g., resolved, unresolved)")
+    show_parser.add_argument("--date", help="Filter postmortems by date (e.g., 2023-08-15)")
 
     args = parser.parse_args()
 
@@ -53,7 +54,7 @@ def main():
     elif args.command == "edit":
         edit_postmortem(args.issue_id, args)
     elif args.command == "show":
-        show_postmortem(issue_id=args.issue_id, status_filter=args.status)
+        show_postmortem(issue_id=args.issue_id, status_filter=args.status, date_filter=args.date)
     else:
         parser.print_help()
 
