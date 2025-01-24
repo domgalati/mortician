@@ -11,7 +11,6 @@ usage: mortician [-h] {create,edit,show} ...
 Simple CLI for managing Postmortems
 
 positional arguments:
-  {create,edit,show}  Available commands
     create            Create a new postmortem
     edit              Edit an existing postmortem
     show              Show details of a postmortem or list all postmortems
