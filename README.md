@@ -68,4 +68,4 @@ optional arguments:
 ```
 
 ## Note
-I am aware that a pathologist usually conducts post-mortems. Mortician is a much cooler name.
+I am aware that a pathologist usually conducts post-mortems. Mortician is a much cooler name. Mortician is also a death metal band from Yonkers, NY and I am shamefully using their logo without permission. You can buy their music here: https://mortician.bandcamp.com
