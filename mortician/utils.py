@@ -28,25 +28,7 @@ def guided_input():
     data = DEFAULT_POSTMORTEM.copy()
     
     print("\n=== Guided Postmortem Creation ===")
-    while True:
-        print("\n=== Resolution ===")
-        print("\nSelect status:")
-        print("1. Unresolved")
-        print("2. Temporary Resolution")
-        print("3. Resolved")
-        status_choice = input("Enter choice (1-3): ")
-        if status_choice == "1":
-            data["overview"]["status"] = "Unresolved"
-            break
-        elif status_choice == "2":
-            data["overview"]["status"] = "Temporary Resolution"
-            data["resolution"]["temporary_fix"] = input("Temporary Fix: ")
-            break
-        elif status_choice == "3":
-            data["overview"]["status"] = "Resolved"
-            data["resolution"]["permanent_fix"] = input("Permanent Fix: ")
-            break
-        print("Invalid choice. Please select 1, 2, or 3.")
+    
     data["incident_owner"] = input("Incident Owner: ")
     data["incident_participants"] = input("Incident Participants (comma separated): ").split(",")
     data["incident_summary"] = input("Incident Summary: ")
@@ -79,6 +61,26 @@ def guided_input():
             break
         print("Invalid choice. Please enter y or n.")
     
+    while True:
+        print("\n=== Resolution ===")
+        print("\nSelect status:")
+        print("1. Unresolved")
+        print("2. Temporary Resolution")
+        print("3. Resolved")
+        status_choice = input("Enter choice (1-3): ")
+        if status_choice == "1":
+            data["overview"]["status"] = "Unresolved"
+            break
+        elif status_choice == "2":
+            data["overview"]["status"] = "Temporary Resolution"
+            data["resolution"]["temporary_fix"] = input("Temporary Fix: ")
+            break
+        elif status_choice == "3":
+            data["overview"]["status"] = "Resolved"
+            data["resolution"]["permanent_fix"] = input("Permanent Fix: ")
+            break
+        print("Invalid choice. Please select 1, 2, or 3.")
+
     return data
 
 def edit_postmortem(issue_id, args):
