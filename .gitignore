@@ -2,3 +2,7 @@ __pycache__/
 .vscode/
 postmortems/
 mortician/postmortems/
+.venv/
+venv/
+build/
+*.egg-info/

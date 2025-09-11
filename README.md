@@ -1,8 +1,17 @@
 <p align="center"><img src="mortician.png" style="width:40%;"/><br>A tool for quickly generating and editing postmortem reports.</p>
 
+## How it Works
+
+Mortician stores all post-mortem data as JSON files locally, making them easy to backup, version control, or integrate with other tools. When you're ready to formalize your incident report, you can export any post-mortem to markdown format.
+
 ## Installation
 1. Clone the project into a local directoy 
 2. Use `pip install .` from the project directory to install.
+
+## Synopsis
+
+Mortician is designed to capture incident information **as it happens**, not after the fact. Instead of scrambling to remember details hours or days later, you document timeline events, fixes, and observations in real-time during the incident response.
+
 
 ## Usage
 ```
@@ -67,5 +76,14 @@ optional arguments:
   --date DATE      Filter postmortems by date (e.g., 2023-08-15)
 ```
 
+### Export to Markdown
+```bash
+# Export a specific post-mortem to markdown
+mortician show incident-123 > postmortem-incident-123.md
+
+# Or pipe directly to your documentation system
+mortician show incident-123 | pandoc -o postmortem.pdf
+```
+
 ## Note
-I am aware that a pathologist usually conducts post-mortems. Mortician is a much cooler name. Mortician is also a death metal band from Yonkers, NY and I am shamefully using their logo without permission. You can buy their music here: https://mortician.bandcamp.com
+I am aware that a pathologist usually conducts post-mortems. However, Mortician is a much cooler name.
