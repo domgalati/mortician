@@ -8,12 +8,11 @@ Mortician stores all post-mortem data as JSON files locally, making them easy to
 1. Clone the project into a local directoy 
 2. Use `pip install .` from the project directory to install.
 
-## Synopsis
+## Usage
 
 Mortician is designed to capture incident information **as it happens**, not after the fact. Instead of scrambling to remember details hours or days later, you document timeline events, fixes, and observations in real-time during the incident response.
 
 
-## Usage
 ```
 usage: mortician [-h] {create,edit,show} ...
 
