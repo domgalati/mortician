@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mortician</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #5b9fd4;
+      --accent-dim: #3d6f9a;
+      --status-open: #e6a23c;
+      --status-resolved: #67c23a;
+      --font: "Segoe UI", system-ui, sans-serif;
+      --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      background: var(--surface);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .live {
+      font-size: 0.75rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .live-dot.on {
+      background: var(--status-resolved);
+      box-shadow: 0 0 8px var(--status-resolved);
+    }
+    .layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) 1fr;
+      min-height: 0;
+    }
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    aside {
+      border-right: 1px solid var(--border);
+      overflow: auto;
+      background: rgba(26, 35, 50, 0.6);
+    }
+    .list {
+      list-style: none;
+      margin: 0;
+      padding: 0.5rem 0;
+    }
+    .list button {
+      width: 100%;
+      text-align: left;
+      padding: 0.65rem 1rem;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .list button:hover { background: rgba(91, 159, 212, 0.08); }
+    .list button.active {
+      background: rgba(91, 159, 212, 0.12);
+      border-left-color: var(--accent);
+    }
+    .list .meta {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.2rem;
+    }
+    main {
+      overflow: auto;
+      padding: 1.25rem 1.5rem 2rem;
+    }
+    .empty, .error {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .error { color: #e85d5d; }
+    .detail h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+    }
+    .detail .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      background: var(--border);
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .detail .badge.resolved { color: var(--status-resolved); }
+    .detail .badge.unresolved { color: var(--status-open); }
+    section {
+      margin-bottom: 1.35rem;
+    }
+    section h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    section p, section li {
+      margin: 0;
+      line-height: 1.55;
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+    .timeline {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      border-left: 2px solid var(--border);
+    }
+    .timeline li {
+      padding: 0.45rem 0 0.45rem 1rem;
+      position: relative;
+    }
+    .timeline li::before {
+      content: "";
+      position: absolute;
+      left: -5px;
+      top: 0.65rem;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      border: 2px solid var(--bg);
+    }
+    .timeline .t { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); }
+    .timeline .a { margin-top: 0.15rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mortician</h1>
+    <div class="live" title="Live updates via Server-Sent Events">
+      <span class="live-dot" id="liveDot"></span>
+      <span id="liveLabel">Connecting…</span>
+    </div>
+  </header>
+  <div class="layout">
+    <aside>
+      <ul class="list" id="incidentList"></ul>
+    </aside>
+    <main id="main"></main>
+  </div>
+  <script>
+    const listEl = document.getElementById("incidentList");
+    const mainEl = document.getElementById("main");
+    const liveDot = document.getElementById("liveDot");
+    const liveLabel = document.getElementById("liveLabel");
+
+    let selectedId = null;
+    let summaries = [];
+
+    function statusClass(status) {
+      const s = (status || "").toLowerCase();
+      if (s.includes("resolved")) return "resolved";
+      if (s.includes("unresolved") || s.includes("temporary")) return "unresolved";
+      return "";
+    }
+
+    function esc(s) {
+      const d = document.createElement("div");
+      d.textContent = s == null ? "" : String(s);
+      return d.innerHTML;
+    }
+
+    function renderList() {
+      listEl.innerHTML = "";
+      if (!summaries.length) {
+        const li = document.createElement("li");
+        li.innerHTML = '<p class="empty" style="padding:1rem">No postmortems yet.</p>';
+        listEl.appendChild(li);
+        return;
+      }
+      for (const row of summaries) {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.dataset.id = row.id;
+        if (row.id === selectedId) btn.classList.add("active");
+        btn.innerHTML =
+          esc(row.title || row.id) +
+          '<span class="meta">' +
+          esc(row.status || "—") + " · " + esc(row.date || "—") +
+          "</span>";
+        btn.addEventListener("click", () => {
+          selectedId = row.id;
+          renderList();
+          loadDetail(row.id);
+        });
+        li.appendChild(btn);
+        listEl.appendChild(li);
+      }
+    }
+
+    async function loadSummaries() {
+      const r = await fetch("/api/postmortems");
+      if (!r.ok) throw new Error("Failed to load list");
+      summaries = await r.json();
+      renderList();
+      if (selectedId && !summaries.some((s) => s.id === selectedId)) {
+        selectedId = null;
+        mainEl.innerHTML = '<p class="empty">Select an incident.</p>';
+      }
+    }
+
+    async function loadDetail(id) {
+      mainEl.innerHTML = '<p class="empty">Loading…</p>';
+      const r = await fetch("/api/postmortems/" + encodeURIComponent(id));
+      if (r.status === 404) {
+        mainEl.innerHTML = '<p class="error">Not found.</p>';
+        return;
+      }
+      if (!r.ok) {
+        mainEl.innerHTML = '<p class="error">Failed to load incident.</p>';
+        return;
+      }
+      const d = await r.json();
+      const ov = d.overview || {};
+      const title = ov.incident_title || id;
+      const st = ov.status || "";
+      const badgeClass = "badge " + statusClass(st);
+      const participants = d.incident_participants;
+      const partStr = Array.isArray(participants)
+        ? participants.join(", ")
+        : (participants || "");
+
+      const timeline = Array.isArray(d.timeline) ? d.timeline : [];
+      let tlHtml = "";
+      if (timeline.length) {
+        tlHtml = "<ul class=\"timeline\">" + timeline.map((ev) => {
+          const keys = Object.keys(ev || {});
+          const timeVal = ev.time != null ? ev.time : "";
+          let body = "";
+          if (ev.action != null) body = String(ev.action);
+          else {
+            const rest = keys.filter((k) => k !== "time");
+            body = rest.map((k) => k + ": " + String(ev[k])).join(" · ");
+          }
+          return "<li><div class=\"t\">" + esc(timeVal) + "</div><div class=\"a\">" + esc(body) + "</div></li>";
+        }).join("") + "</ul>";
+      } else {
+        tlHtml = "<p class=\"empty\">No timeline entries.</p>";
+      }
+
+      const imp = d.impact_and_severity || {};
+      const res = d.resolution || {};
+
+      mainEl.innerHTML =
+        '<div class="detail">' +
+        "<h2>" + esc(title) + "</h2>" +
+        '<span class="' + esc(badgeClass) + '">' + esc(st || "—") + "</span>" +
+        "<section><h3>Overview</h3>" +
+        "<p>Date: " + esc(ov.date) + " · Time: " + esc(ov.time) + "</p></section>" +
+        "<section><h3>Owner</h3><p>" + esc(d.incident_owner) + "</p></section>" +
+        "<section><h3>Participants</h3><p>" + esc(partStr) + "</p></section>" +
+        "<section><h3>Summary</h3><p>" + esc(d.incident_summary) + "</p></section>" +
+        "<section><h3>Impact</h3><p>" +
+        "Affected: " + esc(imp.affected_services) + "<br/>" +
+        "Duration: " + esc(imp.duration_of_outage) + "<br/>" +
+        "Business: " + esc(imp.business_impact) +
+        "</p></section>" +
+        "<section><h3>Root cause</h3><p>" + esc(d.root_cause) + "</p></section>" +
+        "<section><h3>Resolution</h3><p>" +
+        "<strong>Temp:</strong> " + esc(res.temporary_fix) + "<br/>" +
+        "<strong>Perm:</strong> " + esc(res.permanent_fix) +
+        "</p></section>" +
+        "<section><h3>Timeline</h3>" + tlHtml + "</section>" +
+        "</div>";
+    }
+
+    function connectSSE() {
+      const es = new EventSource("/api/events");
+      es.onopen = () => {
+        liveDot.classList.add("on");
+        liveLabel.textContent = "Live";
+      };
+      es.onerror = () => {
+        liveDot.classList.remove("on");
+        liveLabel.textContent = "Reconnecting…";
+      };
+      es.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "postmortems_updated") {
+            loadSummaries().then(() => {
+              if (selectedId) return loadDetail(selectedId);
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      };
+    }
+
+    loadSummaries()
+      .then(() => {
+        mainEl.innerHTML = '<p class="empty">Select an incident.</p>';
+      })
+      .catch(() => {
+        mainEl.innerHTML = '<p class="error">Could not load postmortems.</p>';
+      });
+    connectSSE();
+  </script>
+</body>
+</html>

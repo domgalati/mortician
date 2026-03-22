@@ -12,6 +12,9 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
+    "starlette>=0.27.0",
+    "uvicorn[standard]>=0.23.0",
+    "watchfiles>=0.21.0",
 ]
 
 [project.scripts]
@@ -19,3 +22,6 @@ mortician = "mortician.main:main"
 
 [tool.setuptools]
 packages = ["mortician"]
+
+[tool.setuptools.package-data]
+mortician = ["static/*"]

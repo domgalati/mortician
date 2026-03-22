@@ -44,6 +44,19 @@ def main():
     show_parser.add_argument("--status", help="Filter postmortems by status (e.g., resolved, unresolved)")
     show_parser.add_argument("--date", help="Filter postmortems by date (e.g., 2023-08-15)")
 
+    serve_parser = subparsers.add_parser("serve", help="Run local dashboard (JSON files + live updates)")
+    serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port (default: 8765)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "create":
@@ -55,6 +68,11 @@ def main():
         edit_postmortem(args.issue_id, args)
     elif args.command == "show":
         show_postmortem(issue_id=args.issue_id, status_filter=args.status, date_filter=args.date)
+    elif args.command == "serve":
+        import uvicorn
+        from .serve import app as dashboard_app
+
+        uvicorn.run(dashboard_app, host=args.host, port=args.port, log_level="info")
     else:
         parser.print_help()
 
