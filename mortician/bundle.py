@@ -616,3 +616,56 @@ def write_index_md_atomic(bundle: Path, content: str) -> None:
     tmp = bundle / f".{INDEX_FILENAME}.tmp"
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
+
+
+# URL slug -> single-field update for patch_index_md_section (dashboard API).
+INDEX_SECTION_SLUGS = frozenset(
+    {
+        "summary",
+        "impact",
+        "root_cause",
+        "resolution_temporary",
+        "resolution_permanent",
+    }
+)
+
+
+def patch_index_md_section(bundle: Path, section: str, body: str) -> None:
+    """
+    Replace one logical section of index.md and rewrite the file atomically.
+
+    ``section`` must be a member of ``INDEX_SECTION_SLUGS``. Other YAML files
+    in the bundle are not modified.
+    """
+    if section not in INDEX_SECTION_SLUGS:
+        raise ValueError(f"unknown section: {section!r}")
+
+    index_path = bundle / INDEX_FILENAME
+    text = index_path.read_text(encoding="utf-8") if index_path.is_file() else ""
+    parsed = parse_index_md(text)
+    body_str = body if isinstance(body, str) else str(body)
+
+    if section == "summary":
+        parsed["incident_summary"] = body_str
+    elif section == "impact":
+        parsed["impact_markdown"] = body_str
+    elif section == "root_cause":
+        parsed["root_cause"] = body_str
+    elif section == "resolution_temporary":
+        parsed["resolution_temporary"] = body_str
+    else:
+        parsed["resolution_permanent"] = body_str
+
+    impact = _impact_dict_from_markdown(parsed.get("impact_markdown") or "", None)
+    resolution = {
+        "temporary_fix": parsed.get("resolution_temporary") or "",
+        "permanent_fix": parsed.get("resolution_permanent") or "",
+    }
+    new_md = build_index_md(
+        parsed.get("incident_summary") or "",
+        impact,
+        parsed.get("root_cause") or "",
+        resolution,
+        use_impact_placeholder=False,
+    )
+    write_index_md_atomic(bundle, new_md)

@@ -220,10 +220,16 @@ The dashboard exposes a local HTTP API:
 - `GET /api/postmortems/{issue_id}`  
   Returns full incident JSON assembled from the bundle.
 
-- `PUT /api/postmortems/{issue_id}/index.md`  
+- `PUT /api/postmortems/{issue_id}/index.md`
   Replaces `index.md` with UTF-8 Markdown body (atomic write).
 
-- `GET /api/postmortems/{issue_id}/assets/{asset_path}`  
+- `GET /api/postmortems/{issue_id}/export.zip`
+  Downloads a ZIP of the incident bundle directory (dotfiles under the bundle, such as temp writes, are omitted).
+
+- `PUT /api/postmortems/{issue_id}/sections/{section}`
+  Updates a single logical section of `index.md` and rewrites the file atomically. Request body is UTF-8 plain text (the section body). Valid `{section}` values: `summary`, `impact`, `root_cause`, `resolution_temporary`, `resolution_permanent`. Other bundle files are not modified.
+
+- `GET /api/postmortems/{issue_id}/assets/{asset_path}`
   Serves files from the incident `assets/` directory (path traversal blocked).
 
 - `GET /api/events`  

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import mimetypes
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
@@ -19,9 +21,11 @@ from watchfiles import awatch
 from .bundle import (
     ASSETS_DIRNAME,
     INCIDENTS_DIR,
+    INDEX_SECTION_SLUGS,
     find_bundle_dir,
     list_incident_summaries,
     load_postmortem,
+    patch_index_md_section,
     write_index_md_atomic,
 )
 
@@ -117,6 +121,58 @@ async def put_index_md(request: Request):
     return Response(status_code=204)
 
 
+def _bundle_zip_bytes(bundle: Path) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(bundle.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                rel = path.relative_to(bundle)
+            except ValueError:
+                continue
+            if any(part.startswith(".") for part in rel.parts):
+                continue
+            zf.write(path, rel.as_posix())
+    return buf.getvalue()
+
+
+async def api_export_zip(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    data = _bundle_zip_bytes(bundle)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{issue_id}.zip"',
+        },
+    )
+
+
+async def api_put_section(request: Request):
+    issue_id = request.path_params["issue_id"]
+    section = request.path_params["section"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if section not in INDEX_SECTION_SLUGS:
+        return JSONResponse({"error": "unknown section"}, status_code=400)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return JSONResponse({"error": "invalid encoding"}, status_code=400)
+    try:
+        patch_index_md_section(bundle, section, text)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
 def _safe_asset_file(bundle: Path, asset_path: str) -> Optional[Path]:
     if not asset_path or asset_path.startswith(("/", "\\")):
         return None
@@ -177,6 +233,16 @@ async def api_events(_request: Request):
 
 routes = [
     Route("/api/postmortems", endpoint=api_list, methods=["GET"]),
+    Route(
+        "/api/postmortems/{issue_id}/export.zip",
+        endpoint=api_export_zip,
+        methods=["GET"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/sections/{section}",
+        endpoint=api_put_section,
+        methods=["PUT"],
+    ),
     Route(
         "/api/postmortems/{issue_id}/index.md",
         endpoint=put_index_md,

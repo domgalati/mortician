@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mortician</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css" crossorigin="anonymous" />
   <style>
-    :root {
+    :root,
+    html[data-theme="dark"] {
       --bg: #0f1419;
       --surface: #1a2332;
+      --sidebar-bg: rgba(26, 35, 50, 0.6);
       --border: #2d3a4f;
       --text: #e7ecf3;
       --muted: #8b9cb3;
@@ -15,8 +18,24 @@
       --accent-dim: #3d6f9a;
       --status-open: #e6a23c;
       --status-resolved: #67c23a;
+      --pre-bg: #0d1117;
+      --code-bg: rgba(45, 58, 79, 0.65);
       --font: "Segoe UI", system-ui, sans-serif;
       --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    html[data-theme="light"] {
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --sidebar-bg: rgba(255, 255, 255, 0.92);
+      --border: #c5d0df;
+      --text: #1a2332;
+      --muted: #5a6b82;
+      --accent: #2b6cb0;
+      --accent-dim: #4a8fd4;
+      --status-open: #b45309;
+      --status-resolved: #2f855a;
+      --pre-bg: #f0f3f7;
+      --code-bg: rgba(197, 208, 223, 0.45);
     }
     * { box-sizing: border-box; }
     body {
@@ -35,6 +54,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
+      flex-wrap: wrap;
       background: var(--surface);
     }
     header h1 {
@@ -42,6 +62,12 @@
       font-size: 1.15rem;
       font-weight: 600;
       letter-spacing: -0.02em;
+    }
+    .header-tools {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      flex-wrap: wrap;
     }
     .live {
       font-size: 0.75rem;
@@ -60,6 +86,75 @@
       background: var(--status-resolved);
       box-shadow: 0 0 8px var(--status-resolved);
     }
+    .btn-header {
+      font: inherit;
+      font-size: 0.8rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .btn-header:hover:not(:disabled) {
+      border-color: var(--accent-dim);
+      color: var(--accent);
+    }
+    .btn-header:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    details.export-menu {
+      position: relative;
+    }
+    details.export-menu > summary {
+      list-style: none;
+      cursor: pointer;
+    }
+    details.export-menu > summary::-webkit-details-marker { display: none; }
+    details.export-menu[open] > summary {
+      border-color: var(--accent-dim);
+    }
+    .export-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      min-width: 220px;
+      padding: 0.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      z-index: 20;
+    }
+    html[data-theme="dark"] .export-panel {
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
+    .export-panel button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      font: inherit;
+      font-size: 0.82rem;
+      padding: 0.45rem 0.55rem;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .export-panel button:hover:not(:disabled) {
+      background: rgba(91, 159, 212, 0.12);
+    }
+    .export-panel button:disabled {
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    .export-panel hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0.35rem 0;
+    }
     .layout {
       flex: 1;
       display: grid;
@@ -72,7 +167,7 @@
     aside {
       border-right: 1px solid var(--border);
       overflow: auto;
-      background: rgba(26, 35, 50, 0.6);
+      background: var(--sidebar-bg);
     }
     .sidebar-groups {
       display: flex;
@@ -130,6 +225,7 @@
     }
     .status-group summary .label-unresolved { color: var(--status-open); }
     .status-group summary .label-temporary { color: #c9a227; }
+    html[data-theme="light"] .status-group summary .label-temporary { color: #92400e; }
     .status-group summary .label-resolved { color: var(--status-resolved); }
     .status-group summary .label-other { color: var(--muted); }
     .list {
@@ -169,6 +265,7 @@
       font-size: 0.95rem;
     }
     .error { color: #e85d5d; }
+    html[data-theme="light"] .error { color: #c53030; }
     .detail h2 {
       margin: 0 0 0.35rem;
       font-size: 1.35rem;
@@ -188,7 +285,7 @@
     section {
       margin-bottom: 1.35rem;
     }
-    section h3 {
+    section > h3 {
       margin: 0 0 0.5rem;
       font-size: 0.8rem;
       text-transform: uppercase;
@@ -196,11 +293,96 @@
       color: var(--muted);
       font-weight: 600;
     }
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.4rem;
+    }
+    .section-head h3 {
+      margin: 0;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .btn-edit-section {
+      font: inherit;
+      font-size: 0.72rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .btn-edit-section:hover {
+      color: var(--accent);
+      border-color: var(--accent-dim);
+    }
+    .md-editable {
+      border-radius: 6px;
+      transition: box-shadow 0.15s ease;
+    }
+    .md-editable:hover {
+      box-shadow: 0 0 0 1px rgba(91, 159, 212, 0.25);
+    }
+    .md-editable.is-editing {
+      box-shadow: none;
+    }
+    .md-editable.is-editing:hover {
+      box-shadow: none;
+    }
+    .editor-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .editor-actions button {
+      font: inherit;
+      font-size: 0.8rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .editor-actions .btn-save {
+      background: var(--accent);
+      border-color: var(--accent-dim);
+      color: #fff;
+    }
+    html[data-theme="light"] .editor-actions .btn-save {
+      color: #fff;
+    }
+    .editor-actions .btn-cancel {
+      background: transparent;
+      color: var(--text);
+    }
     section p, section li {
       margin: 0;
       line-height: 1.55;
       color: var(--text);
       font-size: 0.92rem;
+    }
+    .actions-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .actions-list li {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.92rem;
+    }
+    .actions-list li:last-child { border-bottom: none; }
+    .actions-list .act-title { font-weight: 500; }
+    .actions-list .act-meta {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 0.2rem;
     }
     .timeline {
       list-style: none;
@@ -254,14 +436,14 @@
     .md code {
       font-family: var(--mono);
       font-size: 0.84em;
-      background: rgba(45, 58, 79, 0.65);
+      background: var(--code-bg);
       padding: 0.12em 0.35em;
       border-radius: 4px;
     }
     .md pre {
       margin: 0 0 0.75rem;
       padding: 0.75rem 1rem;
-      background: #0d1117;
+      background: var(--pre-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
       overflow-x: auto;
@@ -285,6 +467,7 @@
       text-align: left;
     }
     .md th { background: rgba(45, 58, 79, 0.4); }
+    html[data-theme="light"] .md th { background: rgba(197, 208, 223, 0.35); }
     .md a { color: var(--accent); }
     .md a:hover { text-decoration: underline; }
     .md hr {
@@ -301,14 +484,45 @@
       font-weight: 600;
     }
     .md-subtitle:first-child { margin-top: 0; }
+    .EasyMDEContainer .CodeMirror {
+      background: var(--surface);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .EasyMDEContainer .CodeMirror-cursor { border-color: var(--text); }
+    .EasyMDEContainer .editor-toolbar {
+      border-color: var(--border);
+      background: var(--bg);
+    }
+    .EasyMDEContainer .editor-toolbar button {
+      color: var(--text) !important;
+    }
+    .EasyMDEContainer .editor-preview,
+    .EasyMDEContainer .editor-preview-side {
+      background: var(--surface);
+      border-color: var(--border);
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Mortician</h1>
-    <div class="live" title="Live updates via Server-Sent Events">
-      <span class="live-dot" id="liveDot"></span>
-      <span id="liveLabel">Connecting…</span>
+    <div class="header-tools">
+      <details class="export-menu" id="exportMenu">
+        <summary class="btn-header" id="exportSummary">Export</summary>
+        <div class="export-panel">
+          <button type="button" id="exportZip">Bundle as .zip</button>
+          <hr />
+          <button type="button" disabled title="Coming soon">Bundle as PDF</button>
+          <button type="button" disabled title="Coming soon">Bundle as unified markdown</button>
+          <button type="button" disabled title="Coming soon">Export to Confluence</button>
+        </div>
+      </details>
+      <button type="button" class="btn-header" id="themeToggle" title="Toggle light/dark">Theme</button>
+      <div class="live" title="Live updates via Server-Sent Events">
+        <span class="live-dot" id="liveDot"></span>
+        <span id="liveLabel">Connecting…</span>
+      </div>
     </div>
   </header>
   <div class="layout">
@@ -319,16 +533,27 @@
   </div>
   <script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js" crossorigin="anonymous"></script>
   <script>
     const listEl = document.getElementById("incidentList");
     const mainEl = document.getElementById("main");
     const liveDot = document.getElementById("liveDot");
     const liveLabel = document.getElementById("liveLabel");
+    const exportMenu = document.getElementById("exportMenu");
+    const exportSummary = document.getElementById("exportSummary");
+    const exportZipBtn = document.getElementById("exportZip");
+    const themeToggle = document.getElementById("themeToggle");
 
     let selectedId = null;
     let summaries = [];
+    let lastDetailRaw = {};
+    let activeMde = null;
+    let activeEditWrap = null;
+    let activePreviewEl = null;
+    let activeSection = null;
 
     const SIDEBAR_COLLAPSED_KEY = "mortician.sidebarCollapsed";
+    const THEME_KEY = "mortician.theme";
 
     const STATUS_BUCKETS = [
       { key: "unresolved", label: "Unresolved", labelClass: "label-unresolved" },
@@ -336,6 +561,49 @@
       { key: "resolved", label: "Resolved", labelClass: "label-resolved" },
       { key: "other", label: "Other", labelClass: "label-other" },
     ];
+
+    function initTheme() {
+      let t = localStorage.getItem(THEME_KEY);
+      if (t !== "light" && t !== "dark") {
+        t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    }
+
+    initTheme();
+
+    themeToggle.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") || "dark";
+      const next = cur === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem(THEME_KEY, next);
+      if (activeMde && activeMde.codemirror) {
+        activeMde.codemirror.refresh();
+      }
+    });
+
+    function setExportEnabled(on) {
+      exportSummary.style.pointerEvents = on ? "" : "none";
+      exportSummary.style.opacity = on ? "" : "0.45";
+      exportZipBtn.disabled = !on;
+      if (!on && exportMenu.open) exportMenu.open = false;
+    }
+
+    setExportEnabled(false);
+
+    exportZipBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!selectedId) return;
+      exportMenu.open = false;
+      window.location.href =
+        "/api/postmortems/" + encodeURIComponent(selectedId) + "/export.zip";
+    });
+
+    exportMenu.addEventListener("toggle", () => {
+      if (exportMenu.open && !selectedId) {
+        exportMenu.open = false;
+      }
+    });
 
     function statusBucket(raw) {
       const s = (raw || "").toLowerCase();
@@ -393,8 +661,182 @@
       }
     }
 
+    function impactMarkdownForEdit(imp) {
+      imp = imp || {};
+      if (imp.markdown && String(imp.markdown).trim()) return String(imp.markdown);
+      const affected = String(imp.affected_services || "").trim();
+      const duration = String(imp.duration_of_outage || "").trim();
+      const business = String(imp.business_impact || "").trim();
+      let impactMarkdown = "";
+      if (affected) impactMarkdown += "**Affected Services:** " + affected + "\n\n";
+      if (duration) impactMarkdown += "### Duration of Outage\n" + duration + "\n\n";
+      if (business) impactMarkdown += "### Business Impact\n" + business + "\n\n";
+      return impactMarkdown;
+    }
+
+    function renderActionsHtml(actions) {
+      if (!actions.length) {
+        return '<p class="empty">No action items.</p>';
+      }
+      const items = actions.map((raw) => {
+        if (!raw || typeof raw !== "object") {
+          return "<li>" + esc(raw) + "</li>";
+        }
+        const done = raw.done === true || raw.completed === true;
+        const mark = done ? "[x]" : "[ ]";
+        const title = (raw.task || raw.title || "").trim();
+        const rest = {};
+        for (const k of Object.keys(raw)) {
+          if (["done", "completed", "task", "title"].includes(k)) continue;
+          rest[k] = raw[k];
+        }
+        const extra = Object.keys(rest)
+          .map((k) => k + ": " + String(rest[k]))
+          .filter((s) => s.trim());
+        let line = "";
+        if (title) {
+          line =
+            '<span class="act-title">' +
+            esc(mark) +
+            " " +
+            esc(title) +
+            "</span>";
+          if (extra.length) {
+            line += '<div class="act-meta">' + esc(extra.join("; ")) + "</div>";
+          }
+        } else {
+          line =
+            '<span class="act-title">' +
+            esc("- " + Object.keys(raw).map((k) => k + ": " + String(raw[k])).join("; ")) +
+            "</span>";
+        }
+        return "<li>" + line + "</li>";
+      });
+      return '<ul class="actions-list">' + items.join("") + "</ul>";
+    }
+
+    function editableBlock(section, innerMdHtml) {
+      return (
+        '<div class="md-editable" data-section="' +
+        esc(section) +
+        '"><div class="md-view"><div class="md">' +
+        innerMdHtml +
+        "</div></div></div>"
+      );
+    }
+
+    function sectionWithEdit(title, sectionSlug, innerMdHtml) {
+      return (
+        "<section><div class=\"section-head\"><h3>" +
+        esc(title) +
+        "</h3>" +
+        '<button type="button" class="btn-edit-section" data-section="' +
+        esc(sectionSlug) +
+        '">Edit</button></div>' +
+        editableBlock(sectionSlug, innerMdHtml) +
+        "</section>"
+      );
+    }
+
+    function destroyActiveEditor() {
+      if (activeMde) {
+        const ta = activeMde.element;
+        try {
+          activeMde.toTextArea();
+        } catch (_) {}
+        activeMde = null;
+        if (ta && ta.parentNode) ta.parentNode.removeChild(ta);
+      }
+      const bar = activeEditWrap && activeEditWrap.querySelector(".editor-actions");
+      if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+      if (activePreviewEl && activeEditWrap) {
+        activeEditWrap.classList.remove("is-editing");
+        const view = activeEditWrap.querySelector(".md-view");
+        if (view) view.style.display = "";
+      }
+      activeEditWrap = null;
+      activePreviewEl = null;
+      activeSection = null;
+    }
+
+    async function saveSection(issueId, section, text) {
+      const r = await fetch(
+        "/api/postmortems/" + encodeURIComponent(issueId) + "/sections/" + encodeURIComponent(section),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+          body: text,
+        }
+      );
+      if (!r.ok) {
+        let msg = "Save failed";
+        try {
+          const j = await r.json();
+          if (j.error) msg = j.error;
+        } catch (_) {}
+        alert(msg);
+        return false;
+      }
+      return true;
+    }
+
+    function startEdit(section) {
+      if (!selectedId || typeof EasyMDE === "undefined") return;
+      const initial = lastDetailRaw[section];
+      const text = initial == null ? "" : String(initial);
+      const wrap = mainEl.querySelector('.md-editable[data-section="' + section + '"]');
+      if (!wrap) return;
+      destroyActiveEditor();
+      const view = wrap.querySelector(".md-view");
+      if (!view) return;
+      view.style.display = "none";
+      wrap.classList.add("is-editing");
+      const ta = document.createElement("textarea");
+      wrap.appendChild(ta);
+      activeEditWrap = wrap;
+      activePreviewEl = view;
+      activeSection = section;
+
+      activeMde = new EasyMDE({
+        element: ta,
+        initialValue: text,
+        spellChecker: false,
+        status: ["lines", "words", "cursor"],
+        renderingConfig: {
+          singleLineBreaks: false,
+        },
+        previewClass: ["editor-preview", "md"],
+      });
+
+      const bar = document.createElement("div");
+      bar.className = "editor-actions";
+      bar.innerHTML =
+        '<button type="button" class="btn-save">Save</button>' +
+        '<button type="button" class="btn-cancel">Cancel</button>';
+      wrap.appendChild(bar);
+
+      bar.querySelector(".btn-save").addEventListener("click", async () => {
+        const body = activeMde ? activeMde.value() : text;
+        const ok = await saveSection(selectedId, section, body);
+        if (!ok) return;
+        destroyActiveEditor();
+        await loadDetail(selectedId);
+      });
+      bar.querySelector(".btn-cancel").addEventListener("click", () => {
+        destroyActiveEditor();
+      });
+    }
+
+    mainEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".btn-edit-section");
+      if (!btn || !btn.dataset.section) return;
+      e.preventDefault();
+      startEdit(btn.dataset.section);
+    });
+
     function renderList() {
       listEl.innerHTML = "";
+      setExportEnabled(Boolean(selectedId));
       if (!summaries.length) {
         const p = document.createElement("p");
         p.className = "empty";
@@ -445,23 +887,23 @@
         ul.className = "list nested";
         for (const row of rows) {
           const li = document.createElement("li");
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.dataset.id = row.id;
-          if (row.id === selectedId) btn.classList.add("active");
+          const bbtn = document.createElement("button");
+          bbtn.type = "button";
+          bbtn.dataset.id = row.id;
+          if (row.id === selectedId) bbtn.classList.add("active");
           const metaLine =
             def.key === "other" && row.status
               ? row.status + " · " + (row.date || "—")
               : row.date || "—";
-          btn.innerHTML =
+          bbtn.innerHTML =
             esc(row.title || row.id) +
             '<span class="meta">' + esc(metaLine) + "</span>";
-          btn.addEventListener("click", () => {
+          bbtn.addEventListener("click", () => {
             selectedId = row.id;
             renderList();
             loadDetail(row.id);
           });
-          li.appendChild(btn);
+          li.appendChild(bbtn);
           ul.appendChild(li);
         }
         details.appendChild(ul);
@@ -477,10 +919,12 @@
       if (selectedId && !summaries.some((s) => s.id === selectedId)) {
         selectedId = null;
         mainEl.innerHTML = '<p class="empty">Select an incident.</p>';
+        setExportEnabled(false);
       }
     }
 
     async function loadDetail(id) {
+      destroyActiveEditor();
       mainEl.innerHTML = '<p class="empty">Loading…</p>';
       const r = await fetch("/api/postmortems/" + encodeURIComponent(id));
       if (r.status === 404) {
@@ -501,6 +945,17 @@
         ? participants.join(", ")
         : (participants || "");
 
+      const imp = d.impact_and_severity || {};
+      const res = d.resolution || {};
+
+      lastDetailRaw = {
+        summary: d.incident_summary || "",
+        impact: impactMarkdownForEdit(imp),
+        root_cause: d.root_cause || "",
+        resolution_temporary: res.temporary_fix || "",
+        resolution_permanent: res.permanent_fix || "",
+      };
+
       const timeline = Array.isArray(d.timeline) ? d.timeline : [];
       let tlHtml = "";
       if (timeline.length) {
@@ -519,29 +974,20 @@
         tlHtml = "<p class=\"empty\">No timeline entries.</p>";
       }
 
-      const imp = d.impact_and_severity || {};
-      const res = d.resolution || {};
-
       let impactBlock = "";
       if (imp.markdown && String(imp.markdown).trim()) {
-        impactBlock = '<div class="md">' + renderMd(imp.markdown) + "</div>";
+        impactBlock = renderMd(imp.markdown);
       } else {
-        const affected = String(imp.affected_services || "").trim();
-        const duration = String(imp.duration_of_outage || "").trim();
-        const business = String(imp.business_impact || "").trim();
-
-        let impactMarkdown = "";
-        if (affected) impactMarkdown += `**Affected Services:** ${affected}\n\n`;
-        if (duration) impactMarkdown += `### Duration of Outage\n${duration}\n\n`;
-        if (business) impactMarkdown += `### Business Impact\n${business}\n\n`;
-
-        impactBlock = '<div class="md">' + renderMd(impactMarkdown) + "</div>";
+        impactBlock = renderMd(lastDetailRaw.impact);
       }
 
-      const summaryMd = renderMd(d.incident_summary);
-      const rootMd = renderMd(d.root_cause);
-      const tempMd = renderMd(res.temporary_fix);
-      const permMd = renderMd(res.permanent_fix);
+      const summaryMd = renderMd(lastDetailRaw.summary);
+      const rootMd = renderMd(lastDetailRaw.root_cause);
+      const tempMd = renderMd(lastDetailRaw.resolution_temporary);
+      const permMd = renderMd(lastDetailRaw.resolution_permanent);
+
+      const actions = Array.isArray(d.actions_and_follow_up) ? d.actions_and_follow_up : [];
+      const actionsHtml = renderActionsHtml(actions);
 
       mainEl.innerHTML =
         '<div class="detail">' +
@@ -551,13 +997,18 @@
         "<p>Date: " + esc(ov.date) + " · Time: " + esc(ov.time) + "</p></section>" +
         "<section><h3>Owner</h3><p>" + esc(d.incident_owner) + "</p></section>" +
         "<section><h3>Participants</h3><p>" + esc(partStr) + "</p></section>" +
-        "<section><h3>Summary</h3><div class=\"md\">" + summaryMd + "</div></section>" +
-        "<section><h3>Impact</h3>" + impactBlock + "</section>" +
-        "<section><h3>Root cause</h3><div class=\"md\">" + rootMd + "</div></section>" +
+        sectionWithEdit("Summary", "summary", summaryMd || "<p class=\"empty\">—</p>") +
+        sectionWithEdit("Impact", "impact", impactBlock || "<p class=\"empty\">—</p>") +
+        sectionWithEdit("Root cause", "root_cause", rootMd || "<p class=\"empty\">—</p>") +
         "<section><h3>Resolution</h3>" +
-        '<p class="md-subtitle">Temporary</p><div class="md">' + tempMd + "</div>" +
-        '<p class="md-subtitle">Permanent</p><div class="md">' + permMd + "</div>" +
+        '<div class="section-head"><span class="md-subtitle">Temporary</span>' +
+        '<button type="button" class="btn-edit-section" data-section="resolution_temporary">Edit</button></div>' +
+        editableBlock("resolution_temporary", tempMd || "<p class=\"empty\">—</p>") +
+        '<div class="section-head" style="margin-top:0.75rem"><span class="md-subtitle">Permanent</span>' +
+        '<button type="button" class="btn-edit-section" data-section="resolution_permanent">Edit</button></div>' +
+        editableBlock("resolution_permanent", permMd || "<p class=\"empty\">—</p>") +
         "</section>" +
+        "<section><h3>Actions / follow-up</h3>" + actionsHtml + "</section>" +
         "<section><h3>Timeline</h3>" + tlHtml + "</section>" +
         "</div>";
     }
