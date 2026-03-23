@@ -526,12 +526,16 @@
       if (imp.markdown && String(imp.markdown).trim()) {
         impactBlock = '<div class="md">' + renderMd(imp.markdown) + "</div>";
       } else {
-        impactBlock =
-          "<p>" +
-          "Affected: " + esc(imp.affected_services) + "<br/>" +
-          "Duration: " + esc(imp.duration_of_outage) + "<br/>" +
-          "Business: " + esc(imp.business_impact) +
-          "</p>";
+        const affected = String(imp.affected_services || "").trim();
+        const duration = String(imp.duration_of_outage || "").trim();
+        const business = String(imp.business_impact || "").trim();
+
+        let impactMarkdown = "";
+        if (affected) impactMarkdown += `**Affected Services:** ${affected}\n\n`;
+        if (duration) impactMarkdown += `### Duration of Outage\n${duration}\n\n`;
+        if (business) impactMarkdown += `### Business Impact\n${business}\n\n`;
+
+        impactBlock = '<div class="md">' + renderMd(impactMarkdown) + "</div>";
       }
 
       const summaryMd = renderMd(d.incident_summary);

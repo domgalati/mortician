@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
+import socket
+import shlex
 import sys
+import subprocess
+import tempfile
+import shutil
 from datetime import datetime, timezone
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
 
 from .bundle import (
     INCIDENTS_DIR,
@@ -12,6 +19,7 @@ from .bundle import (
     find_bundle_dir,
     load_postmortem as _load_postmortem_bundle,
     save_postmortem as _save_postmortem_bundle,
+    write_index_md_atomic,
 )
 from .templates import DEFAULT_POSTMORTEM
 
@@ -86,12 +94,543 @@ def _read_multiline_block(heading: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _read_multiline_block_default(heading: str, default_value: Optional[str]) -> str:
+    """Read lines until a blank line; return default if first line is blank."""
+    print(heading)
+    if default_value is not None and str(default_value).strip():
+        print("(Press Enter on an empty first line to accept the default.)")
+        print("Default:")
+        print(default_value)
+    else:
+        print("(Enter a blank line when finished.)")
+
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line == "":
+            break
+        lines.append(line)
+
+    user_text = "\n".join(lines).strip()
+    if not user_text and default_value is not None:
+        return str(default_value).strip()
+    return user_text
+
+
+def _inject_variable_tokens(text: str, token_values: Dict[str, str]) -> str:
+    """Replace $date/$utc/$host tokens with computed values."""
+    out = text or ""
+    for token, value in token_values.items():
+        out = out.replace(token, value)
+    return out
+
+
 def _questionary_module():
     try:
         import questionary  # type: ignore[import-untyped]
     except ImportError:
         return None
     return questionary
+
+
+def _get_editor_command() -> Sequence[str]:
+    """Resolve $EDITOR/$VISUAL into an argv list, with a safe fallback."""
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    if editor:
+        # Allow things like: code --wait
+        return shlex.split(editor)
+
+    for candidate in ("vi", "nano"):
+        if shutil.which(candidate):
+            return [candidate]
+    raise RuntimeError(
+        "No editor configured. Set $EDITOR (preferred) or install `vi`/`nano`."
+    )
+
+
+def _edit_text_in_editor(initial_text: str, *, field_label: str) -> str:
+    """Open $EDITOR for a single text value and return the edited content."""
+    editor_cmd = list(_get_editor_command())
+
+    # Use a temp file so arbitrary editors work consistently.
+    tmp_path = None
+    tty_in = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
+            tmp_path = f.name
+            f.write(initial_text or "")
+            f.flush()
+
+        # If this CLI is being driven via a pipe (e.g. `echo ... | mortician add`),
+        # the editor's stdin may be the closed/EOF'd pipe, which can make vim
+        # fall back to non-interactive/Ex behavior. Prefer the real terminal
+        # input when available.
+        # Subprocess inherits the parent's file descriptor 0, not Python's
+        # current `sys.stdin` object. So we check fd 0 specifically.
+        if not os.isatty(0):
+            tty_path = "/dev/tty" if os.name != "nt" else "CONIN$"
+            try:
+                tty_in = open(tty_path, "r", encoding="utf-8")
+                subprocess.check_call(editor_cmd + [tmp_path], stdin=tty_in)
+            except Exception:
+                subprocess.check_call(editor_cmd + [tmp_path])
+        else:
+            subprocess.check_call(editor_cmd + [tmp_path])
+        edited = Path(tmp_path).read_text(encoding="utf-8")
+        return edited
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink()
+            except Exception:
+                pass
+        if tty_in is not None:
+            try:
+                tty_in.close()
+            except Exception:
+                pass
+
+
+def _get_nested(d: Dict[str, Any], path: Sequence[str]) -> Any:
+    cur: Any = d
+    for key in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+    return cur
+
+
+def _set_nested(d: Dict[str, Any], path: Sequence[str], value: Any) -> None:
+    cur: Any = d
+    for key in path[:-1]:
+        if key not in cur or not isinstance(cur[key], dict):
+            cur[key] = {}
+        cur = cur[key]
+    cur[path[-1]] = value
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    """Write text atomically via tmp+replace (best-effort cross-platform)."""
+    tmp = path.parent / f".{path.name}.tmp"
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _combine_bundle_files_for_editor(
+    file_texts: Dict[str, str], file_order: Sequence[str]
+) -> str:
+    """
+    Combine multiple bundle files into one editable document.
+
+    We only roundtrip canonical bundle files (not arbitrary extras).
+    """
+    start = "MORTICIAN_BUNDLE_FILE_START:"
+    end = "MORTICIAN_BUNDLE_FILE_END:"
+
+    parts: List[str] = []
+    parts.append(
+        "# Mortician bundle editor (one file per marker block)\n"
+        "# Edit the content between START/END markers. Markers must remain unchanged.\n"
+    )
+    for fname in file_order:
+        parts.append(f"{start}{fname}")
+        parts.append(file_texts.get(fname, ""))
+        parts.append(f"{end}{fname}")
+        parts.append("")  # spacer line between blocks
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def _parse_combined_bundle_editor_text(
+    text: str, file_order: Sequence[str]
+) -> Dict[str, str]:
+    """Parse combined editor doc back into canonical bundle files by markers."""
+    start = "MORTICIAN_BUNDLE_FILE_START:"
+    end = "MORTICIAN_BUNDLE_FILE_END:"
+
+    lines = text.splitlines()
+    out: Dict[str, str] = {}
+
+    scan_from = 0
+    for fname in file_order:
+        start_marker = f"{start}{fname}"
+        end_marker = f"{end}{fname}"
+
+        try:
+            start_idx = next(
+                i for i in range(scan_from, len(lines)) if lines[i].strip() == start_marker
+            )
+        except StopIteration:
+            raise ValueError(f"Missing start marker for {fname!r}: {start_marker!r}")
+
+        try:
+            end_idx = next(
+                i
+                for i in range(start_idx + 1, len(lines))
+                if lines[i].strip() == end_marker
+            )
+        except StopIteration:
+            raise ValueError(f"Missing end marker for {fname!r}: {end_marker!r}")
+
+        if end_idx < start_idx:
+            raise ValueError(f"Invalid marker ordering for {fname!r}")
+
+        content_lines = lines[start_idx + 1 : end_idx]
+        out[fname] = "\n".join(content_lines)
+
+        scan_from = end_idx + 1
+
+    return out
+
+
+def _extract_impact_legacy_fields_from_markdown(
+    impact_markdown: str,
+) -> Dict[str, str]:
+    """
+    Best-effort extraction of legacy impact fields from `impact_and_severity.markdown`.
+
+    The UI/dashboard renders `markdown` verbatim, but our CLI required-field logic
+    works on legacy fields. This helper lets us derive:
+      - affected_services
+      - duration_of_outage
+      - business_impact
+
+    Expected (by `build_index_md()`):
+      - **Affected Services:** <text>
+      - ### Duration of Outage
+      - ### Business Impact
+    """
+    md = (impact_markdown or "").strip()
+    out = {
+        "affected_services": "",
+        "duration_of_outage": "",
+        "business_impact": "",
+    }
+    if not md:
+        return out
+
+    # affected services: "**Affected Services:** <line>"
+    m = re.search(
+        r"\*\*Affected Services:\*\*\s*(?P<v>[^\n\r]+)",
+        md,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        out["affected_services"] = (m.group("v") or "").strip()
+
+    # section capture for duration/business (until next ### heading)
+    def extract_section(heading: str) -> str:
+        pattern = (
+            r"^###\s*"
+            + re.escape(heading)
+            + r"\s*$"  # exact heading line
+            + r"(?P<body>.*?)(?=^###\s*|\Z)"
+        )
+        m2 = re.search(pattern, md, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        if not m2:
+            return ""
+        body = (m2.group("body") or "").strip()
+        return body
+
+    out["duration_of_outage"] = extract_section("Duration of Outage")
+    out["business_impact"] = extract_section("Business Impact")
+    return out
+
+
+def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) -> None:
+    """
+    Stateful/editor-driven edit operation.
+
+    For each supported flag:
+      - not provided => unchanged
+      - provided with no value (argparser const) => open $EDITOR to update value
+      - provided with a value => overwrite value
+    """
+    data = load_postmortem(issue_id)
+    if data is None:
+        print(f"No postmortem found for issue: {issue_id}")
+        return
+
+    no_input = bool(getattr(args, "no_input", False))
+
+    # If the user ran `mortician edit` with no edit flags, open the entire incident bundle.
+    edit_field_values = [
+        getattr(args, "status", None),
+        getattr(args, "severity", None),
+        getattr(args, "owner", None),
+        getattr(args, "participants", None),
+        getattr(args, "summary", None),
+        getattr(args, "root_cause", None),
+        getattr(args, "affected_services", None),
+        getattr(args, "duration_of_outage", None),
+        getattr(args, "business_impact", None),
+        getattr(args, "temp_fix", None),
+        getattr(args, "perm_fix", None),
+    ]
+    add_entry_value = getattr(args, "add_entry", None)
+    if (not any(v is not None for v in edit_field_values)) and not add_entry_value:
+        bundle_dir = find_bundle_dir(issue_id)
+        if bundle_dir is None:
+            print(f"No incident bundle found for id: {issue_id}")
+            return
+
+        bundle_files = ["meta.yaml", "index.md", "timeline.yaml", "actions.yaml"]
+        file_texts: Dict[str, str] = {}
+        for fname in bundle_files:
+            p = bundle_dir / fname
+            file_texts[fname] = p.read_text(encoding="utf-8") if p.is_file() else ""
+
+        combined = _combine_bundle_files_for_editor(file_texts, bundle_files)
+        edited = _edit_text_in_editor(combined, field_label="incident bundle")
+
+        parsed: Dict[str, str]
+        try:
+            parsed = _parse_combined_bundle_editor_text(edited, bundle_files)
+        except ValueError as e:
+            raise RuntimeError(str(e))
+
+        # Write back canonical files (unknown extra files remain untouched).
+        write_index_md_atomic(bundle_dir, parsed["index.md"])
+        for yaml_name in ("meta.yaml", "timeline.yaml", "actions.yaml"):
+            _write_text_atomic(bundle_dir / yaml_name, parsed[yaml_name])
+
+        print(f"Postmortem '{issue_id}' updated successfully.")
+        return
+
+    updates: Dict[str, Any] = {}
+
+    # When updating legacy impact subfields, clear markdown so `save_postmortem()` uses
+    # `affected_services`/`duration_of_outage`/`business_impact` instead of `impact_and_severity.markdown`.
+    legacy_impact_fields = {"affected_services", "duration_of_outage", "business_impact"}
+
+    # If impact is stored as markdown, derive legacy fields so we don't lose them when
+    # switching to legacy serialization (i.e., when we clear `impact_and_severity.markdown`).
+    impact_markdown_data = _get_nested(data, ["impact_and_severity", "markdown"])
+    impact_markdown_data_has = (
+        isinstance(impact_markdown_data, str) and impact_markdown_data.strip()
+    )
+    derived_impact_data: Dict[str, str] = {}
+    if impact_markdown_data_has:
+        derived_impact_data = _extract_impact_legacy_fields_from_markdown(
+            str(impact_markdown_data)
+        )
+
+    def maybe_update(flag_value: Optional[str], path: Sequence[str], *, label: str) -> None:
+        if flag_value is None:
+            return
+        if flag_value == EDITOR_SENTINEL:
+            if no_input:
+                raise RuntimeError(f"{label}: editor mode disabled with --no-input; pass a value.")
+            current = _get_nested(data, path)
+            edited = _edit_text_in_editor(str(current or ""), field_label=label)
+            _set_nested(updates, path, edited.strip())
+            if (
+                len(path) == 2
+                and path[0] == "impact_and_severity"
+                and path[1] in legacy_impact_fields
+            ):
+                # Preserve other impact fields from markdown when switching serialization.
+                if derived_impact_data:
+                    for k in legacy_impact_fields:
+                        if _get_nested(updates, ["impact_and_severity", k]) is None:
+                            _set_nested(
+                                updates,
+                                ["impact_and_severity", k],
+                                derived_impact_data.get(k, ""),
+                            )
+                _set_nested(updates, ["impact_and_severity", "markdown"], "")
+            return
+
+        # Normal value overwrite
+        _set_nested(updates, path, str(flag_value).strip())
+        if (
+            len(path) == 2
+            and path[0] == "impact_and_severity"
+            and path[1] in legacy_impact_fields
+        ):
+            # Preserve other impact fields from markdown when switching serialization.
+            if derived_impact_data:
+                for k in legacy_impact_fields:
+                    if _get_nested(updates, ["impact_and_severity", k]) is None:
+                        _set_nested(
+                            updates,
+                            ["impact_and_severity", k],
+                            derived_impact_data.get(k, ""),
+                        )
+            _set_nested(updates, ["impact_and_severity", "markdown"], "")
+
+    # Overview fields
+    status_value: Optional[str] = None
+    status_was_set = False
+    if getattr(args, "status", None) is not None:
+        status_raw = getattr(args, "status")
+        status_was_set = True
+        if status_raw == EDITOR_SENTINEL:
+            if no_input:
+                raise RuntimeError("status: editor mode disabled with --no-input; pass a value.")
+            current = _get_nested(data, ["overview", "status"]) or ""
+            edited = _edit_text_in_editor(str(current), field_label="status")
+            status_candidate = edited.strip()
+        else:
+            status_candidate = str(status_raw).strip()
+
+        normalized = status_candidate.lower()
+        status_map = {
+            "unresolved": "Unresolved",
+            "temporary resolution": "Temporary Resolution",
+            "temporary_resolution": "Temporary Resolution",
+            "temporary-resolution": "Temporary Resolution",
+            "resolved": "Resolved",
+        }
+        if normalized in status_map:
+            status_value = status_map[normalized]
+        else:
+            raise ValueError("status must be one of: Unresolved, Temporary Resolution, Resolved")
+        _set_nested(updates, ["overview", "status"], status_value)
+
+    maybe_update(getattr(args, "severity", None), ["overview", "severity"], label="severity")
+
+    # Identity fields
+    maybe_update(getattr(args, "owner", None), ["incident_owner"], label="owner")
+    maybe_update(
+        getattr(args, "participants", None), ["incident_participants"], label="participants"
+    )
+    maybe_update(getattr(args, "summary", None), ["incident_summary"], label="summary")
+    maybe_update(getattr(args, "root_cause", None), ["root_cause"], label="root cause")
+
+    # Impact fields
+    maybe_update(
+        getattr(args, "affected_services", None),
+        ["impact_and_severity", "affected_services"],
+        label="affected services",
+    )
+    maybe_update(
+        getattr(args, "duration_of_outage", None),
+        ["impact_and_severity", "duration_of_outage"],
+        label="duration",
+    )
+    maybe_update(
+        getattr(args, "business_impact", None),
+        ["impact_and_severity", "business_impact"],
+        label="business impact",
+    )
+
+    # Resolution fields
+    maybe_update(
+        getattr(args, "temp_fix", None), ["resolution", "temporary_fix"], label="temp fix"
+    )
+    maybe_update(
+        getattr(args, "perm_fix", None), ["resolution", "permanent_fix"], label="perm fix"
+    )
+
+    # If the user transitions to "Resolved", ensure required fields are present.
+    if status_was_set and status_value == "Resolved":
+        # TODO: once mortician has a config file, make the "Resolved required fields"
+        # list configurable per deployment/teams.
+        required_candidates: List[tuple[Sequence[str], str]] = [
+            (["root_cause"], "root cause"),
+            (["resolution", "permanent_fix"], "permanent fix"),
+            (["impact_and_severity", "affected_services"], "affected services"),
+            (["impact_and_severity", "duration_of_outage"], "duration of outage"),
+            (["impact_and_severity", "business_impact"], "business impact"),
+        ]
+
+        preview = copy.deepcopy(data)
+        if updates:
+            _merge_postmortem_dict(preview, updates)
+
+        impact_markdown = _get_nested(preview, ["impact_and_severity", "markdown"])
+        impact_markdown_has = isinstance(impact_markdown, str) and impact_markdown.strip()
+        derived_impact: Dict[str, str] = {}
+
+        def _value_is_empty(v: Any) -> bool:
+            if v is None:
+                return True
+            if isinstance(v, str):
+                return not v.strip()
+            return False
+
+        if impact_markdown_has:
+            # Derive legacy impact fields from markdown so missing duration/business
+            # still count as empty for required-field prompting.
+            derived_impact = _extract_impact_legacy_fields_from_markdown(
+                str(impact_markdown)
+            )
+            for k in legacy_impact_fields:
+                _set_nested(preview, ["impact_and_severity", k], derived_impact.get(k, ""))
+
+        def _candidate_is_empty(path: Sequence[str]) -> bool:
+            return _value_is_empty(_get_nested(preview, path))
+
+        empty_candidates = [
+            (path, label)
+            for path, label in required_candidates
+            if _candidate_is_empty(path)
+        ]
+
+        if no_input:
+            missing_labels = [label for _path, label in empty_candidates]
+            if missing_labels:
+                raise RuntimeError(
+                    "When setting status to 'Resolved', these fields must be non-empty "
+                    f"(missing: {', '.join(missing_labels)})."
+                )
+        else:
+            selected_required: List[tuple[Sequence[str], str]] = []
+            for path, label in empty_candidates:
+                require_it = _prompt_yes_no_default(
+                    f"'{label}' is empty. Require it for Resolved?",
+                    default_yes=True,
+                )
+                if require_it:
+                    selected_required.append((path, label))
+
+            for path, label in selected_required:
+                current = _get_nested(preview, path) or ""
+                edited = _edit_text_in_editor(str(current), field_label=label).strip()
+                if not edited:
+                    raise RuntimeError(f"'{label}' is required for Resolved and cannot be empty.")
+
+                _set_nested(updates, path, edited)
+                if (
+                    len(path) == 2
+                    and path[0] == "impact_and_severity"
+                    and path[1] in legacy_impact_fields
+                ):
+                    # Preserve other impact fields from markdown when switching serialization.
+                    if derived_impact:
+                        for k in legacy_impact_fields:
+                            if _get_nested(updates, ["impact_and_severity", k]) is None:
+                                _set_nested(
+                                    updates,
+                                    ["impact_and_severity", k],
+                                    derived_impact.get(k, ""),
+                                )
+                    _set_nested(updates, ["impact_and_severity", "markdown"], "")
+                _set_nested(preview, path, edited)
+
+    # Timeline append (back-compat)
+    if getattr(args, "add_entry", None):
+        entry: Dict[str, Any] = {}
+        for kv in args.add_entry:
+            if "=" not in kv:
+                print(f"Warning: skipping timeline fragment (expected KEY=VALUE): {kv!r}")
+                continue
+            k, v = kv.split("=", 1)
+            entry[k.strip()] = v
+        if entry:
+            data.setdefault("timeline", [])
+            data["timeline"].append(entry)
+
+    # Merge and persist
+    if updates:
+        _merge_postmortem_dict(data, updates)
+    save_postmortem(issue_id, data)
+    print(f"Postmortem '{issue_id}' updated successfully.")
 
 
 def _prompt_duration_of_outage(q: Any) -> str:
@@ -149,10 +688,38 @@ def _prompt_yes_no(prompt: str) -> bool:
         print("Please enter y or n.")
 
 
+def _prompt_yes_no_default(prompt: str, *, default_yes: bool) -> bool:
+    """
+    Prompt yes/no with an implicit default on empty input.
+
+    Used for "field is empty; require it?" decisions.
+    """
+    hint = "Y/n" if default_yes else "y/N"
+    while True:
+        val = input(f"{prompt} [{hint}]: ").strip().lower()
+        if not val:
+            return default_yes
+        if val in ("y", "yes"):
+            return True
+        if val in ("n", "no"):
+            return False
+        print("Please enter y or n.")
+
+
 def guided_input():
     """Interactive prompt for postmortem creation (live-incident friendly order)."""
     data = copy.deepcopy(DEFAULT_POSTMORTEM)
     q = _questionary_module()
+
+    # Stable token values for this guided session.
+    host = socket.gethostname()
+    local_date = datetime.now().date().isoformat()
+    utc_iso = datetime.now(timezone.utc).isoformat()
+    token_values = {
+        "$date": local_date,
+        "$utc": utc_iso,
+        "$host": host,
+    }
 
     print("\n=== Guided incident setup ===")
 
@@ -161,13 +728,28 @@ def guided_input():
     data["incident_participants"] = [p.strip() for p in raw_parts.split(",") if p.strip()]
 
     print()
-    data["incident_summary"] = _read_multiline_block("Incident summary (Markdown ok):")
+    print(
+        "Variable injection tokens (expanded into the saved Markdown automatically): "
+        f"$date={local_date}, $utc={utc_iso}, $host={host}"
+    )
+    summary_template = "Investigating issue on $host which started on $date (UTC: $utc)."
+    summary_default = _inject_variable_tokens(summary_template, token_values)
+    summary_raw = _read_multiline_block_default(
+        "Incident summary (Markdown ok; supports $date/$utc/$host tokens):",
+        default_value=summary_default,
+    )
+    data["incident_summary"] = _inject_variable_tokens(summary_raw, token_values)
     incident_ongoing = _prompt_yes_no("Is the incident still ongoing? (y/n): ")
 
     print("\n=== Impact & severity (optional; blank lines skip) ===")
     data["impact_and_severity"]["affected_services"] = input("Affected services: ").strip()
-    data["impact_and_severity"]["duration_of_outage"] = _prompt_duration_of_outage(q)
-    data["impact_and_severity"]["business_impact"] = input("Business impact: ").strip()
+    if incident_ongoing:
+        # During a live incident, don't force duration/business impact answers.
+        data["impact_and_severity"]["duration_of_outage"] = ""
+        data["impact_and_severity"]["business_impact"] = ""
+    else:
+        data["impact_and_severity"]["duration_of_outage"] = _prompt_duration_of_outage(q)
+        data["impact_and_severity"]["business_impact"] = input("Business impact: ").strip()
 
     sev = input("Severity label (e.g. P1, SEV-2; optional): ").strip()
     if sev:
@@ -322,6 +904,187 @@ def append_timeline_entry(
     save_postmortem(issue_id, data)
     print(f"Timeline entry added to '{issue_id}' at {t!r}.")
     return 0
+
+
+def add_timeline_entry_interactive(
+    issue_id: str,
+    *,
+    time_str: Optional[str] = None,
+    action: Optional[str] = None,
+) -> int:
+    """
+    Interactive prompt for appending one timeline entry to an incident.
+
+    Used by `mortician add` (stateful) to avoid forcing `issue_id` each time.
+    """
+    q = _questionary_module()
+    now_iso_ms = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    if now_iso_ms.endswith("+00:00"):
+        now_iso_ms = now_iso_ms[: -len("+00:00")]
+
+    # Only consume piped stdin when the caller did not provide --action.
+    piped_stdin = (action is None) and (not sys.stdin.isatty())
+    stdin_text: Optional[str] = None
+    stamp_ts: Optional[str] = None
+
+    # If stdin is piped, we still want interactive prompts to read from the TTY.
+    orig_stdin = sys.stdin
+    tty_in = None
+    try:
+        if piped_stdin:
+            stdin_text = (orig_stdin.read() or "").strip()
+            stamp_ts = _extract_stamp_from_text(stdin_text) if stdin_text else None
+
+            # Swap stdin to TTY for subsequent interactive prompts.
+            tty_path = "/dev/tty" if os.name != "nt" else "CONIN$"
+            try:
+                tty_in = open(tty_path, "r", encoding="utf-8")
+                sys.stdin = tty_in
+            except Exception:
+                # Fallback to existing stdin; prompts may not behave as expected.
+                sys.stdin = orig_stdin
+
+        if time_str is not None:
+            t_val = time_str
+        else:
+            t_val = _prompt_timeline_time_with_stamp(q, default_ts=now_iso_ms, stamp_ts=stamp_ts)
+
+        if action is not None:
+            a_val = action
+        else:
+            # Prompt for the action text using the configured editor (instead of
+            # line-by-line stdin input). If stdin was piped, prefill with that text.
+            seed = stdin_text or ""
+            edited = _edit_text_in_editor(seed, field_label="action")
+            a_val = (edited or "").strip()
+
+        return append_timeline_entry(issue_id, time_str=t_val, action=a_val)
+    finally:
+        sys.stdin = orig_stdin
+        if tty_in is not None:
+            try:
+                tty_in.close()
+            except Exception:
+                pass
+
+
+def _extract_stamp_from_text(text: str) -> Optional[str]:
+    """
+    Extract a timestamp from arbitrary log text.
+
+    Supports:
+    - ISO8601/RFC3339 anywhere in the line (optionally wrapped in brackets)
+    - Unix epoch (seconds or milliseconds) anywhere in the line
+    - `YYYY-MM-DD HH:MM:SS(.mmm)` anywhere in the line
+    """
+    if not text:
+        return None
+
+    # ISO8601 with optional fractional seconds + optional timezone.
+    iso_re = re.compile(
+        r"(?P<iso>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)"
+    )
+    m = iso_re.search(text)
+    if m:
+        iso = m.group("iso")
+        s = iso.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return iso
+        if dt.tzinfo is None:
+            # Naive ISO timestamps in logs typically imply UTC.
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt_utc = dt.astimezone(timezone.utc)
+        out = dt_utc.isoformat(timespec="milliseconds")
+        if out.endswith("+00:00"):
+            out = out[: -len("+00:00")]
+        return out
+
+    # Unix epoch seconds or milliseconds.
+    epoch_re = re.compile(r"\b(?P<epoch>\d{10}(?:\.\d+)?|\d{13}(?:\.\d+)?)\b")
+    m = epoch_re.search(text)
+    if m:
+        epoch_raw = m.group("epoch")
+        try:
+            epoch_val = float(epoch_raw)
+            # 13-digit epochs are usually milliseconds.
+            if epoch_val > 1e12:
+                epoch_val = epoch_val / 1000.0
+            dt = datetime.fromtimestamp(epoch_val, tz=timezone.utc)
+            out = dt.isoformat(timespec="milliseconds")
+            if out.endswith("+00:00"):
+                out = out[: -len("+00:00")]
+            return out
+        except Exception:
+            return None
+
+    # `YYYY-MM-DD HH:MM:SS(.mmm)` (assume UTC).
+    space_re = re.compile(
+        r"(?P<stamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)"
+    )
+    m = space_re.search(text)
+    if m:
+        stamp = m.group("stamp").strip()
+        frac = ""
+        if "." in stamp:
+            stamp, frac = stamp.split(".", 1)
+        try:
+            dt = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            if frac:
+                # Convert fractional seconds to microseconds (pad/truncate to 6).
+                frac_us = (frac[:6]).ljust(6, "0")
+                dt = dt.replace(microsecond=int(frac_us))
+            out = dt.isoformat(timespec="milliseconds")
+            if out.endswith("+00:00"):
+                out = out[: -len("+00:00")]
+            return out
+        except Exception:
+            return None
+
+    return None
+
+
+def _prompt_timeline_time_with_stamp(
+    q: Any,
+    *,
+    default_ts: str,
+    stamp_ts: Optional[str],
+) -> str:
+    """
+    Time prompt that supports Stamp/Now/Enter-manually when `questionary` is available.
+    """
+    if q is not None:
+        choices: List[str] = []
+        if stamp_ts:
+            choices.append(f"Stamp ({stamp_ts})")
+        choices.append(f"Now ({default_ts})")
+        choices.append("Enter manually")
+
+        try:
+            choice = q.select(
+                "Time for this entry:",
+                choices=choices,
+            ).ask()
+        except (EOFError, KeyboardInterrupt):
+            return default_ts
+
+        if choice is None:
+            return default_ts
+        if stamp_ts and choice.startswith("Stamp ("):
+            return stamp_ts
+        if choice.startswith("Now ("):
+            return default_ts
+
+        manual = q.text("Time:", default=default_ts).ask()
+        return (manual or default_ts).strip()
+
+    # No questionary: follow plan's behavior.
+    if stamp_ts:
+        return stamp_ts
+    return default_ts
 
 
 def slugify(text):

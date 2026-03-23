@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -11,7 +12,33 @@ import yaml
 
 from .templates import DEFAULT_POSTMORTEM
 
-INCIDENTS_DIR = Path("incidents")
+def _resolve_incidents_dir() -> Path:
+    """
+    Resolve the incidents root in a shell-agnostic way.
+
+    - Prefer env override: `MORTICIAN_INCIDENTS_DIR`
+    - Search upward from CWD for an `incidents/` folder
+    - Fallback to repo-relative (useful during development)
+    """
+    override = os.environ.get("MORTICIAN_INCIDENTS_DIR")
+    if override:
+        return Path(override)
+
+    cur = Path.cwd()
+    for _ in range(12):
+        cand = cur / "incidents"
+        if cand.is_dir():
+            return cand
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+
+    # Repo-relative fallback (dev/editable installs)
+    repo_root = Path(__file__).resolve().parent.parent
+    return repo_root / "incidents"
+
+
+INCIDENTS_DIR = _resolve_incidents_dir()
 TITLE_SLUG_MAX_LEN = 50
 
 META_FILENAME = "meta.yaml"
@@ -66,19 +93,20 @@ def find_bundle_dir(issue_id: str) -> Optional[Path]:
     """Return the incident directory for ``issue_id`` if it exists."""
     if not INCIDENTS_DIR.is_dir():
         return None
-    prefix = f"{issue_id}-"
-    for path in sorted(INCIDENTS_DIR.iterdir()):
-        if not path.is_dir() or not path.name.startswith(prefix):
-            continue
-        meta_path = path / META_FILENAME
-        if not meta_path.is_file():
-            continue
+
+    candidate_meta_paths: List[Path] = []
+    # Incidents stored directly under `incidents/<id>-<slug>/meta.yaml`
+    candidate_meta_paths.extend(INCIDENTS_DIR.glob(f"*/{META_FILENAME}"))
+    # Archived incidents under `incidents/old/<id>-<slug>/meta.yaml`
+    candidate_meta_paths.extend(INCIDENTS_DIR.glob(f"old/*/{META_FILENAME}"))
+
+    for meta_path in sorted(candidate_meta_paths):
         try:
             meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
         except Exception:
             continue
         if meta.get("id") == issue_id:
-            return path
+            return meta_path.parent
     return None
 
 
@@ -112,11 +140,17 @@ def new_bundle_path(issue_id: str, title: str) -> Path:
 def list_bundle_dirs() -> List[Path]:
     if not INCIDENTS_DIR.is_dir():
         return []
-    out: List[Path] = []
-    for path in sorted(INCIDENTS_DIR.iterdir()):
-        if path.is_dir() and (path / META_FILENAME).is_file():
-            out.append(path)
-    return out
+    out_set = set()
+
+    # Direct bundles: incidents/<bundle>/meta.yaml
+    for meta_path in INCIDENTS_DIR.glob(f"*/{META_FILENAME}"):
+        out_set.add(meta_path.parent)
+
+    # Archived bundles: incidents/old/<bundle>/meta.yaml
+    for meta_path in INCIDENTS_DIR.glob(f"old/*/{META_FILENAME}"):
+        out_set.add(meta_path.parent)
+
+    return sorted(out_set)
 
 
 def list_incident_summaries() -> List[Dict[str, Any]]:
@@ -275,18 +309,31 @@ def _parse_resolution_subsection(resolution_body: str, sub: str) -> str:
         return ""
     buf: List[str] = []
     for line in lines[start:]:
-        if line.startswith("### ") and line.strip() != target:
+        # Stop at the next heading. We intentionally do not allow nested
+        # "### Temporary"/"### Permanent" headings inside the subsection
+        # body; those indicate broken legacy parsing and would otherwise get
+        # re-serialized back into index.md.
+        if line.startswith("### "):
             break
         buf.append(line)
     return "\n".join(buf).strip()
 
 
 def _parse_resolution_subsections(resolution_body: str) -> Tuple[str, str]:
+    # Determine whether the headings exist; we only apply the legacy
+    # fallback when *neither* "### Temporary" nor "### Permanent" is present.
+    lines = resolution_body.splitlines()
+    has_temp = any(line.strip() == f"### {SUB_TEMP}" for line in lines)
+    has_perm = any(line.strip() == f"### {SUB_PERM}" for line in lines)
+
     t = _parse_resolution_subsection(resolution_body, SUB_TEMP)
     p = _parse_resolution_subsection(resolution_body, SUB_PERM)
-    if not t and not p and resolution_body.strip():
-        # No ### subsections: treat whole block as temporary (legacy)
+
+    if not has_temp and not has_perm and resolution_body.strip():
+        # No ### subsections at all: treat whole block as temporary (legacy).
         return resolution_body.strip(), ""
+
+    # Headings exist (even if their bodies are empty): keep them empty.
     return t, p
 
 
@@ -332,10 +379,11 @@ def _impact_from_legacy(impact: Dict[str, Any]) -> str:
     lines = []
     if a:
         lines.append(f"**Affected Services:** {a}")
+    # Use Markdown headings so the web UI can render these as proper sub-sections.
     if d:
-        lines.append(f"**Duration of Outage:** {d}")
+        lines.append(f"### Duration of Outage\n{d}")
     if b:
-        lines.append(f"**Business Impact:** {b}")
+        lines.append(f"### Business Impact\n{b}")
     return "\n".join(lines)
 
 
@@ -465,8 +513,12 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
         data.update(initial)
     data["overview"] = dict(data.get("overview") or {})
     data["overview"]["incident_title"] = title
-    data["overview"].setdefault("date", str(datetime.now().date()))
-    data["overview"].setdefault("time", str(datetime.now().time()))
+    # `DEFAULT_POSTMORTEM` sets these to empty strings; `setdefault()` would not overwrite.
+    # If the fields are empty, populate them for newly-created incidents.
+    if not str(data["overview"].get("date") or "").strip():
+        data["overview"]["date"] = str(datetime.now().date())
+    if not str(data["overview"].get("time") or "").strip():
+        data["overview"]["time"] = str(datetime.now().time())
     data["overview"].setdefault("status", "Unresolved")
     data["overview"].setdefault("severity", "")
 

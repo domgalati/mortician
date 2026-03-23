@@ -1,11 +1,23 @@
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import os
 import sys
+from typing import List
+
+from .bundle import list_incident_summaries
+from .state import get_active_issue_id, require_active_issue_id, set_active_issue_id
+
+try:
+    import argcomplete  # type: ignore
+except ImportError:  # pragma: no cover
+    argcomplete = None
 
 from .utils import (
+    add_timeline_entry_interactive,
     append_timeline_entry,
     create_postmortem,
     edit_postmortem,
+    edit_postmortem_stateful,
     guided_input,
     print_create_followup,
     smart_id_from_title,
@@ -13,7 +25,62 @@ from .utils import (
 from .ui import show_postmortem
 
 
+def _incident_id_completer(prefix: str, **_kwargs) -> List[str]:
+    """Complete existing incident ids from bundle metadata."""
+    p = (prefix or "").strip()
+    ids = [row.get("id", "") for row in list_incident_summaries()]
+    if not p:
+        return [i for i in ids if i]
+    return [i for i in ids if i and i.startswith(p)]
+
+
+def _status_completer(prefix: str, **_kwargs) -> List[str]:
+    """Complete common status values."""
+    p = (prefix or "").strip().lower()
+    statuses = ["Unresolved", "Temporary Resolution", "Resolved"]
+    if not p:
+        return statuses
+    return [s for s in statuses if s.lower().startswith(p)]
+
+
+def _add_entry_key_completer(prefix: str, **_kwargs) -> List[str]:
+    """Suggest timeline entry keys in KEY=VALUE pairs."""
+    # We only complete the "key=" part; users still type the value.
+    p = (prefix or "").strip()
+    if "=" in p:
+        return []
+    candidates = ["time=", "action="]
+    if not p:
+        return candidates
+    return [c for c in candidates if c.startswith(p)]
+
+
 def main():
+    EDITOR_SENTINEL = "__MORTICIAN_EDIT_IN_EDITOR__"
+    # Normalize deprecated/alternate option spellings into canonical dash-case
+    # before argparse runs. This lets users type `--temp_fix` while keeping
+    # tab completion clean (only canonical flags are registered with argparse).
+    alias_to_canonical = {
+        "--root_cause": "--root-cause",
+        "--temp_fix": "--temp-fix",
+        "--perm_fix": "--perm-fix",
+        "--affected_services": "--affected-services",
+        "--business_impact": "--business-impact",
+    }
+    argv = sys.argv[1:]
+    normalized: List[str] = []
+    for tok in argv:
+        new_tok = tok
+        for alias, canonical in alias_to_canonical.items():
+            if tok == alias:
+                new_tok = canonical
+                break
+            if tok.startswith(alias + "="):
+                new_tok = canonical + "=" + tok[len(alias) + 1 :]
+                break
+        normalized.append(new_tok)
+    sys.argv = [sys.argv[0]] + normalized
+
     parser = argparse.ArgumentParser(
         description="CLI for incident bundles (postmortems) under incidents/"
     )
@@ -32,41 +99,126 @@ def main():
     )
 
     edit_parser = subparsers.add_parser("edit", help="Edit an existing incident")
-    edit_parser.add_argument("issue_id", help="Incident id (see mortician list)")
-    edit_parser.add_argument("--status", help="Update status (e.g. Resolved, Unresolved)")
-    edit_parser.add_argument("--severity", help="Severity label (e.g. P1, SEV-2)")
-    edit_parser.add_argument("--owner", help="Update the incident owner")
-    edit_parser.add_argument("--participants", help="Update participants (string)")
-    edit_parser.add_argument("--summary", help="Update incident summary (Markdown)")
-    edit_parser.add_argument("--root_cause", help="Update root cause (Markdown)")
-    edit_parser.add_argument("--temp_fix", help="Update temporary fix (Markdown)")
-    edit_parser.add_argument("--perm_fix", help="Update permanent fix (Markdown)")
+    edit_issue_id = edit_parser.add_argument(
+        "issue_id",
+        nargs="?",
+        help="Incident id (omit to edit the active incident selected via `mortician select`)",
+    )
+    edit_issue_id.completer = _incident_id_completer  # type: ignore[attr-defined]
+    edit_status_arg = edit_parser.add_argument(
+        "--status",
+        help="Update status (e.g. Resolved, Unresolved)",
+        # Keep argparse permissive; completion handles common values.
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+    )
+    edit_status_arg.completer = _status_completer  # type: ignore[attr-defined]
+    edit_parser.add_argument(
+        "--severity",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Severity label (e.g. P1, SEV-2)",
+    )
+    edit_parser.add_argument(
+        "--owner",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update the incident owner",
+    )
+    edit_parser.add_argument(
+        "--participants",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update participants (string)",
+    )
+    edit_parser.add_argument(
+        "--summary",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update incident summary (Markdown); omit value to edit in $EDITOR",
+    )
+    edit_parser.add_argument(
+        "--root-cause",
+        dest="root_cause",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update root cause (Markdown); omit value to edit in $EDITOR",
+    )
+    edit_parser.add_argument(
+        "--temp-fix",
+        dest="temp_fix",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update temporary fix (Markdown); omit value to edit in $EDITOR",
+    )
+    edit_parser.add_argument(
+        "--perm-fix",
+        dest="perm_fix",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update permanent fix (Markdown); omit value to edit in $EDITOR",
+    )
+    edit_parser.add_argument(
+        "--affected-services",
+        dest="affected_services",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update affected services; omit value to edit in $EDITOR",
+    )
+    edit_parser.add_argument(
+        "--duration",
+        dest="duration_of_outage",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update duration of outage; omit value to edit in $EDITOR",
+    )
+    edit_parser.add_argument(
+        "--business-impact",
+        dest="business_impact",
+        nargs="?",
+        const=EDITOR_SENTINEL,
+        default=None,
+        help="Update business impact; omit value to edit in $EDITOR",
+    )
     edit_parser.add_argument(
         "--no-input",
         action="store_true",
-        help="Do not prompt for missing fields (for scripts; use --perm_fix/--temp_fix with --status)",
+        help="Do not prompt for missing fields (for scripts; use --perm-fix/--temp-fix with --status)",
     )
-    edit_parser.add_argument(
+    add_entry_arg = edit_parser.add_argument(
         "--add-entry",
         nargs="+",
         metavar="KEY=VALUE",
         help="Append one timeline row (e.g. time='2025-03-14 12:00 UTC' action='Sev-1 declared'). "
         "Values can contain '=' after the first '=' in each pair.",
     )
+    add_entry_arg.completer = _add_entry_key_completer  # type: ignore[attr-defined]
 
     show_parser = subparsers.add_parser(
         "show",
         help="Show one incident as Markdown, or list all when issue_id is omitted",
     )
-    show_parser.add_argument(
+    show_issue_id = show_parser.add_argument(
         "issue_id",
         nargs="?",
         help="Incident id (omit to list all)",
     )
-    show_parser.add_argument(
+    show_issue_id.completer = _incident_id_completer  # type: ignore[attr-defined]
+    show_status_arg = show_parser.add_argument(
         "--status",
         help="When listing: filter by status (case-insensitive)",
     )
+    show_status_arg.completer = _status_completer  # type: ignore[attr-defined]
     show_parser.add_argument(
         "--date",
         help="When listing: filter by date (YYYY-MM-DD)",
@@ -87,10 +239,11 @@ def main():
         "list",
         help="List incidents (same filters as mortician show)",
     )
-    list_parser.add_argument(
+    list_status_arg = list_parser.add_argument(
         "--status",
         help="Filter by status (case-insensitive)",
     )
+    list_status_arg.completer = _status_completer  # type: ignore[attr-defined]
     list_parser.add_argument(
         "--date",
         help="Filter by date (YYYY-MM-DD)",
@@ -109,7 +262,8 @@ def main():
         "add",
         help="Append a timeline event; use --action for one line, or omit it to read body from stdin",
     )
-    tl_add.add_argument("issue_id", help="Incident id")
+    tl_issue_id = tl_add.add_argument("issue_id", help="Incident id")
+    tl_issue_id.completer = _incident_id_completer  # type: ignore[attr-defined]
     tl_add.add_argument(
         "--time",
         default=None,
@@ -137,16 +291,76 @@ def main():
         help="Port (default: 8765)",
     )
 
+    add_parser = subparsers.add_parser(
+        "add",
+        help="Add one timeline entry to the active incident selected via `mortician select`",
+    )
+    add_parser.add_argument(
+        "--time",
+        default=None,
+        help="Timestamp string (default: prompt; falls back to current UTC)",
+    )
+    add_parser.add_argument(
+        "--action",
+        default=None,
+        help="Event description (Markdown). If omitted, an interactive prompt is shown.",
+    )
+
+    select_parser = subparsers.add_parser(
+        "select",
+        help="Select an active incident id for subsequent edit/add commands",
+    )
+    select_issue_id = select_parser.add_argument(
+        "issue_id",
+        help="Incident id (sets the active incident used by `mortician edit`/`mortician add`)",
+        nargs="?",
+    )
+    select_issue_id.completer = _incident_id_completer  # type: ignore[attr-defined]
+
+    # Enable shell completions (bash/zsh/fish, and PowerShell if registered).
+    if argcomplete is not None:
+        argcomplete.autocomplete(parser)
+
     args = parser.parse_args()
 
     if args.command == "create":
         issue_id = create_postmortem(args.title, smart_id_from_title)
+        set_active_issue_id(issue_id)
         if args.guide:
             data = guided_input()
             edit_postmortem(issue_id, data)
         print_create_followup(issue_id)
+    elif args.command == "select":
+        if args.issue_id:
+            set_active_issue_id(args.issue_id)
+            print(f"Active incident selected: {args.issue_id}")
+        else:
+            active = get_active_issue_id()
+            if not active:
+                print("No active incident selected. Run `mortician select <issue_id>` first.")
+            else:
+                title = ""
+                for row in list_incident_summaries():
+                    if row.get("id") == active:
+                        title = row.get("title") or ""
+                        break
+                if title.strip():
+                    print(f"Active incident: {active} - {title.strip()}")
+                else:
+                    print(f"Active incident: {active}")
     elif args.command == "edit":
-        edit_postmortem(args.issue_id, args)
+        issue_id = args.issue_id or require_active_issue_id()
+        if args.issue_id:
+            set_active_issue_id(args.issue_id)
+        edit_postmortem_stateful(issue_id, args, EDITOR_SENTINEL=EDITOR_SENTINEL)
+    elif args.command == "add":
+        issue_id = require_active_issue_id()
+        code = add_timeline_entry_interactive(
+            issue_id,
+            time_str=args.time,
+            action=args.action,
+        )
+        sys.exit(code)
     elif args.command == "show":
         want_render = bool(args.render) or (
             os.environ.get("MORTICIAN_SHOW_RENDER", "").strip().lower()

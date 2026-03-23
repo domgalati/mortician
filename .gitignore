@@ -6,3 +6,5 @@ mortician/incidents/
 venv/
 build/
 *.egg-info/
+old/
+*.log
