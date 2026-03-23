@@ -11,7 +11,7 @@ import tempfile
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .bundle import (
     INCIDENTS_DIR,
@@ -69,15 +69,15 @@ def print_create_followup(issue_id: str) -> None:
     )
 
 
-def create_postmortem(title, smart_id_generator):
-    """Create a new incident bundle."""
+def create_postmortem(title, smart_id_generator) -> Tuple[str, Path]:
+    """Create a new incident bundle. Returns ``(issue_id, bundle_dir_path)``."""
     issue_id = smart_id_generator(title)
     if find_bundle_dir(issue_id):
         raise ValueError(f"Postmortem '{issue_id}' already exists.")
 
-    create_bundle(issue_id, title)
+    bundle_path = create_bundle(issue_id, title)
     print(f"Incident created with id: '{issue_id}' (from title).")
-    return issue_id
+    return issue_id, bundle_path
 
 
 def _read_multiline_block(heading: str) -> str:
@@ -764,14 +764,16 @@ def guided_input():
     data["incident_participants"] = [p.strip() for p in raw_parts.split(",") if p.strip()]
 
     print()
+    print("--- Incident summary ---")
     print(
-        "Variable injection tokens (expanded into the saved Markdown automatically): "
-        f"$date={local_date}, $utc={utc_iso}, $host={host}"
+        "Short narrative of what is going on (saved as Markdown in the bundle). "
+        "You can use placeholders $date, $utc, and $host; they are replaced when saved with: "
+        f"{local_date}, {utc_iso}, {host}."
     )
     summary_template = "Investigating issue on $host which started on $date (UTC: $utc)."
     summary_default = _inject_variable_tokens(summary_template, token_values)
     summary_raw = _read_multiline_block_default(
-        "Incident summary (Markdown ok; supports $date/$utc/$host tokens):",
+        "Incident summary (Markdown ok):",
         default_value=summary_default,
     )
     data["incident_summary"] = _inject_variable_tokens(summary_raw, token_values)
@@ -996,6 +998,20 @@ def set_action_item_done(issue_id: str, index: int, *, done: bool) -> int:
     return 0
 
 
+def _format_piped_capture(command: Optional[str], output: str) -> str:
+    """
+    Minimal timeline text: optional ``$ <command>``, blank line, then captured stdout.
+
+    No synthetic hostname or cwd; used when stdin was piped and the user supplied
+    a command string (CLI flag, env, or prompt).
+    """
+    out = output or ""
+    cmd = (command or "").strip()
+    if not cmd:
+        return out
+    return f"$ {cmd}\n\n{out}"
+
+
 def append_timeline_entry(
     issue_id: str,
     *,
@@ -1030,6 +1046,7 @@ def add_timeline_entry_interactive(
     *,
     time_str: Optional[str] = None,
     action: Optional[str] = None,
+    piped_command: Optional[str] = None,
 ) -> int:
     """
     Interactive prompt for appending one timeline entry to an incident.
@@ -1071,9 +1088,19 @@ def add_timeline_entry_interactive(
         if action is not None:
             a_val = action
         else:
-            # Prompt for the action text using the configured editor (instead of
-            # line-by-line stdin input). If stdin was piped, prefill with that text.
-            seed = stdin_text or ""
+            seed = ""
+            if piped_stdin:
+                cmd_resolved = (piped_command or "").strip()
+                if not cmd_resolved:
+                    cmd_resolved = (os.environ.get("MORTICIAN_ADD_CMD") or "").strip()
+                if not cmd_resolved and tty_in is not None:
+                    try:
+                        cmd_resolved = input("Command (optional, Enter to skip): ").strip()
+                    except EOFError:
+                        cmd_resolved = ""
+                seed = _format_piped_capture(cmd_resolved, stdin_text or "")
+            else:
+                seed = stdin_text or ""
             edited = _edit_text_in_editor(seed, field_label="action")
             a_val = (edited or "").strip()
 

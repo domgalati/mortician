@@ -94,7 +94,7 @@ mortician create TITLE [--guide]
 Guided mode collects:
 
 - incident owner and participants
-- summary
+- **Summary:** short narrative of what is going on (Markdown). Placeholders `$date`, `$utc`, and `$host` are expanded when saved (shown with example values before you edit).
 - impact details and optional severity label
 - timeline entries
 - status/resolution fields (unless incident is still ongoing)
@@ -178,7 +178,7 @@ Editor behavior:
 ### `add`
 
 ```text
-mortician add [--time TIME] [--action ACTION]
+mortician add [--time TIME] [--action ACTION] [--cmd CMD]
 ```
 
 Adds one timeline entry to the active incident.
@@ -186,7 +186,7 @@ Adds one timeline entry to the active incident.
 - If stdin is piped and `--action` is not provided, Mortician will:
   - try to extract a timestamp from the piped text as `Stamp (...)` (if parsing succeeds)
   - prompt for time with `Stamp (...)`, `Now (...)`, and `Enter manually` (when `questionary` is installed)
-  - prefill the `What happened?` editor with the piped log text
+  - prefill the `What happened?` editor: by default with the piped text only. The shell does **not** pass the command on the left of the pipe (e.g. `uptime` in `uptime | mortician add`). To record that command in the entry, use **`--cmd`** (e.g. `uptime | mortician add --cmd uptime`), or set **`MORTICIAN_ADD_CMD`**, or answer the optional **Command (optional, Enter to skip):** prompt when a TTY is available. The saved text is then a minimal block: `$ <cmd>`, a blank line, then the piped output.
 - If timestamp parsing fails, the `Stamp (...)` option is omitted, but `What happened?` is still prefilled.
 
 ### `timeline add`
@@ -228,6 +228,12 @@ The dashboard exposes a local HTTP API:
 
 - `PUT /api/postmortems/{issue_id}/sections/{section}`
   Updates a single logical section of `index.md` and rewrites the file atomically. Request body is UTF-8 plain text (the section body). Valid `{section}` values: `summary`, `impact`, `root_cause`, `resolution_temporary`, `resolution_permanent`. Other bundle files are not modified.
+
+- `POST /api/postmortems/{issue_id}/actions`
+  Appends one follow-up item. Request body is JSON: `task` (required string), `owner` and `due` (optional strings).
+
+- `PATCH /api/postmortems/{issue_id}/actions/{action_index}`
+  Merges fields into one row of `actions.yaml` (`items` list). `{action_index}` is **0-based**. Request body is JSON object with any of: `done`, `completed` (booleans), `task`, `title`, `owner`, `due` (strings). Unknown keys are rejected. Empty `{}` is a no-op.
 
 - `GET /api/postmortems/{issue_id}/assets/{asset_path}`
   Serves files from the incident `assets/` directory (path traversal blocked).

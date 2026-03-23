@@ -22,9 +22,11 @@ from .bundle import (
     ASSETS_DIRNAME,
     INCIDENTS_DIR,
     INDEX_SECTION_SLUGS,
+    append_action_row,
     find_bundle_dir,
     list_incident_summaries,
     load_postmortem,
+    patch_action_item,
     patch_index_md_section,
     write_index_md_atomic,
 )
@@ -173,6 +175,65 @@ async def api_put_section(request: Request):
     return Response(status_code=204)
 
 
+async def api_post_actions(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        data = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    raw_task = data.get("task")
+    if raw_task is None:
+        return JSONResponse({"error": "task is required"}, status_code=400)
+    task = str(raw_task).strip()
+    if not task:
+        return JSONResponse({"error": "task is required"}, status_code=400)
+    owner = data.get("owner")
+    due = data.get("due")
+    o = (owner.strip() if isinstance(owner, str) else "") or ""
+    d = (due.strip() if isinstance(due, str) else "") or ""
+    try:
+        append_action_row(bundle, task=task, owner=o, due=d)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
+async def api_patch_action(request: Request):
+    issue_id = request.path_params["issue_id"]
+    index_raw = request.path_params["action_index"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        index = int(index_raw)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "invalid index"}, status_code=400)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        updates = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(updates, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    if not updates:
+        return Response(status_code=204)
+    try:
+        patch_action_item(bundle, index, updates)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
 def _safe_asset_file(bundle: Path, asset_path: str) -> Optional[Path]:
     if not asset_path or asset_path.startswith(("/", "\\")):
         return None
@@ -237,6 +298,16 @@ routes = [
         "/api/postmortems/{issue_id}/export.zip",
         endpoint=api_export_zip,
         methods=["GET"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/actions",
+        endpoint=api_post_actions,
+        methods=["POST"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/actions/{action_index}",
+        endpoint=api_patch_action,
+        methods=["PATCH"],
     ),
     Route(
         "/api/postmortems/{issue_id}/sections/{section}",

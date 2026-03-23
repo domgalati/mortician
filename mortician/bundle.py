@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -108,6 +109,52 @@ def find_bundle_dir(issue_id: str) -> Optional[Path]:
         if meta.get("id") == issue_id:
             return meta_path.parent
     return None
+
+
+def _bundle_path_is_under_incidents(bundle_path: Path) -> bool:
+    """True if ``bundle_path`` resolves to a directory under ``INCIDENTS_DIR``."""
+    try:
+        child = bundle_path.resolve()
+        root = INCIDENTS_DIR.resolve()
+    except OSError:
+        return False
+    try:
+        child.relative_to(root)
+        return True
+    except ValueError:
+        pass
+    # Windows: resolve() can differ (e.g. casing, symlinks) so relative_to fails.
+    try:
+        return os.path.commonpath([str(child), str(root)]) == str(root)
+    except ValueError:
+        return False
+
+
+def delete_bundle_path(bundle_path: Path) -> bool:
+    """
+    Remove a bundle directory by explicit path (e.g. path returned from ``create_bundle``).
+
+    Only deletes when the path resolves under ``INCIDENTS_DIR``. Returns True if removed.
+    """
+    if not bundle_path.is_dir():
+        return False
+    if not _bundle_path_is_under_incidents(bundle_path):
+        return False
+    shutil.rmtree(bundle_path)
+    return True
+
+
+def delete_incident_bundle(issue_id: str) -> bool:
+    """
+    Remove the on-disk bundle directory for ``issue_id``.
+
+    Only deletes paths resolved under ``INCIDENTS_DIR`` (including ``old/``).
+    Returns True if a directory was removed.
+    """
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return False
+    return delete_bundle_path(bundle)
 
 
 def _next_collision_suffix(issue_id: str, title: str) -> str:
@@ -669,3 +716,59 @@ def patch_index_md_section(bundle: Path, section: str, body: str) -> None:
         use_impact_placeholder=False,
     )
     write_index_md_atomic(bundle, new_md)
+
+
+# JSON merge keys for PATCH .../actions/{index} (dashboard API).
+ACTION_ITEM_PATCH_KEYS = frozenset({"done", "completed", "task", "title", "owner", "due"})
+
+
+def patch_action_item(bundle: Path, index: int, updates: Dict[str, Any]) -> None:
+    """
+    Merge ``updates`` into ``items[index]`` in actions.yaml and write the file.
+
+    Raises ``ValueError`` for out-of-range index, unknown keys, or non-dict items.
+    No-op if ``updates`` is empty.
+    """
+    if not updates:
+        return
+    bad = [k for k in updates if k not in ACTION_ITEM_PATCH_KEYS]
+    if bad:
+        raise ValueError("unknown field: " + ", ".join(repr(k) for k in bad))
+
+    items = _read_actions(bundle)
+    if index < 0 or index >= len(items):
+        raise ValueError("action index out of range")
+    item = items[index]
+    if not isinstance(item, dict):
+        raise ValueError("action item is not a mapping")
+
+    for k, v in updates.items():
+        if k in ("done", "completed"):
+            item[k] = bool(v) if v is not None else False
+        else:
+            item[k] = _coerce_simple(v)
+
+    items[index] = {str(kk): _coerce_simple(vv) for kk, vv in item.items()}
+    _write_actions(bundle, items)
+
+
+def append_action_row(
+    bundle: Path,
+    *,
+    task: str,
+    owner: str = "",
+    due: str = "",
+) -> None:
+    """Append one checklist item to ``actions.yaml`` (same shape as CLI ``append_action_item``)."""
+    t = (task or "").strip()
+    if not t:
+        raise ValueError("task is empty")
+    items = _read_actions(bundle)
+    item: Dict[str, Any] = {
+        "task": t,
+        "done": False,
+        "owner": (owner or "").strip(),
+        "due": (due or "").strip(),
+    }
+    items.append({str(k): _coerce_simple(v) for k, v in item.items()})
+    _write_actions(bundle, items)

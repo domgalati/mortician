@@ -4,8 +4,13 @@ import os
 import sys
 from typing import List
 
-from .bundle import list_incident_summaries
-from .state import get_active_issue_id, require_active_issue_id, set_active_issue_id
+from .bundle import delete_bundle_path, list_incident_summaries
+from .state import (
+    clear_active_issue_id_if_matches,
+    get_active_issue_id,
+    require_active_issue_id,
+    set_active_issue_id,
+)
 
 try:
     import argcomplete  # type: ignore
@@ -308,6 +313,15 @@ def main():
         default=None,
         help="Event description (Markdown). If omitted, an interactive prompt is shown.",
     )
+    add_parser.add_argument(
+        "-c",
+        "--cmd",
+        dest="piped_cmd",
+        default=None,
+        help="When stdin is piped, prepend ``$ <cmd>`` before the captured output. "
+        "The shell does not pass the left-hand command to Mortician; use this flag (or "
+        "MORTICIAN_ADD_CMD) to record it.",
+    )
 
     select_parser = subparsers.add_parser(
         "select",
@@ -353,11 +367,29 @@ def main():
     args = parser.parse_args()
 
     if args.command == "create":
-        issue_id = create_postmortem(args.title, smart_id_from_title)
+        issue_id, bundle_path = create_postmortem(args.title, smart_id_from_title)
         set_active_issue_id(issue_id)
         if args.guide:
-            data = guided_input()
-            merge_and_save_postmortem(issue_id, data)
+            try:
+                data = guided_input()
+                merge_and_save_postmortem(issue_id, data)
+            except KeyboardInterrupt:
+                # Use the path from create (not find_bundle_dir) so cleanup works on
+                # Windows and whenever meta lookup would not match the new folder.
+                removed = delete_bundle_path(bundle_path)
+                clear_active_issue_id_if_matches(issue_id)
+                if removed:
+                    print(
+                        "\nInterrupted; removed unfinished incident bundle.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "\nInterrupted; could not remove the bundle directory. "
+                        f"Delete it manually if needed:\n  {bundle_path}",
+                        file=sys.stderr,
+                    )
+                sys.exit(130)
         print_create_followup(issue_id)
     elif args.command == "select":
         if args.issue_id:
@@ -388,6 +420,7 @@ def main():
             issue_id,
             time_str=args.time,
             action=args.action,
+            piped_command=args.piped_cmd,
         )
         sys.exit(code)
     elif args.command == "action":

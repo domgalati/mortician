@@ -76,3 +76,15 @@ def require_active_issue_id() -> str:
         )
     return v
 
+
+def clear_active_issue_id_if_matches(issue_id: str) -> None:
+    """Drop persisted active id when it equals ``issue_id`` (e.g. after aborted create)."""
+    issue_id = (issue_id or "").strip()
+    if not issue_id:
+        return
+    state = _read_state()
+    cur = state.get("active_issue_id")
+    if isinstance(cur, str) and cur.strip() == issue_id:
+        state.pop("active_issue_id", None)
+        _write_state(state)
+
