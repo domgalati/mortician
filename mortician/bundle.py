@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -247,6 +247,47 @@ H_ROOT = "Root Cause"
 H_RESOLUTION = "Resolution"
 SUB_TEMP = "Temporary"
 SUB_PERM = "Permanent"
+SUB_IMPACT_AFFECTED = "Affected Services"
+SUB_IMPACT_DURATION = "Duration of Outage"
+SUB_IMPACT_BUSINESS = "Business Impact"
+
+
+def default_impact_index_placeholder() -> str:
+    """Impact section template for new incidents (### subsections, empty bodies)."""
+    parts = [
+        _md_h3_block(SUB_IMPACT_AFFECTED, ""),
+        _md_h3_block(SUB_IMPACT_DURATION, ""),
+        _md_h3_block(SUB_IMPACT_BUSINESS, ""),
+    ]
+    return "\n\n".join(parts)
+
+
+def _md_h2_block(title: str, body: str) -> str:
+    """Single ## section: one blank line after heading when body is non-empty."""
+    b = (body or "").strip()
+    if b:
+        return f"## {title}\n\n{b}"
+    return f"## {title}"
+
+
+def _md_h3_block(subtitle: str, body: str) -> str:
+    """Single ### section under Resolution or Impact."""
+    b = (body or "").strip()
+    if b:
+        return f"### {subtitle}\n\n{b}"
+    return f"### {subtitle}"
+
+
+def _md_resolution_block(resolution: Dict[str, Any]) -> str:
+    temp_fix = (resolution.get("temporary_fix") or "").strip()
+    perm_fix = (resolution.get("permanent_fix") or "").strip()
+    inner = "\n\n".join(
+        [
+            _md_h3_block(SUB_TEMP, temp_fix),
+            _md_h3_block(SUB_PERM, perm_fix),
+        ]
+    )
+    return f"## {H_RESOLUTION}\n\n{inner}"
 
 
 def parse_index_md(text: str) -> Dict[str, str]:
@@ -342,32 +383,25 @@ def build_index_md(
     impact_and_severity: Dict[str, Any],
     root_cause: str,
     resolution: Dict[str, Any],
+    *,
+    use_impact_placeholder: bool = False,
 ) -> str:
     """Build index.md from canonical dict fields."""
-    impact_body = impact_and_severity.get("markdown") or _impact_from_legacy(impact_and_severity)
-    temp_fix = resolution.get("temporary_fix") or ""
-    perm_fix = resolution.get("permanent_fix") or ""
+    if use_impact_placeholder:
+        impact_body = default_impact_index_placeholder()
+    else:
+        impact_body = impact_and_severity.get("markdown") or _impact_from_legacy(
+            impact_and_severity
+        )
+    impact_body = (impact_body or "").strip()
 
-    parts = [
-        f"## {H_SUMMARY}",
-        incident_summary.strip(),
-        "",
-        f"## {H_IMPACT}",
-        impact_body.strip(),
-        "",
-        f"## {H_ROOT}",
-        root_cause.strip(),
-        "",
-        f"## {H_RESOLUTION}",
-        "",
-        f"### {SUB_TEMP}",
-        temp_fix.strip(),
-        "",
-        f"### {SUB_PERM}",
-        perm_fix.strip(),
-        "",
+    blocks = [
+        _md_h2_block(H_SUMMARY, incident_summary),
+        _md_h2_block(H_IMPACT, impact_body),
+        _md_h2_block(H_ROOT, root_cause),
+        _md_resolution_block(resolution),
     ]
-    return "\n".join(parts).rstrip() + "\n"
+    return "\n\n".join(blocks).rstrip() + "\n"
 
 
 def _impact_from_legacy(impact: Dict[str, Any]) -> str:
@@ -376,15 +410,14 @@ def _impact_from_legacy(impact: Dict[str, Any]) -> str:
     b = (impact.get("business_impact") or "").strip()
     if not a and not d and not b:
         return ""
-    lines = []
+    parts: List[str] = []
     if a:
-        lines.append(f"**Affected Services:** {a}")
-    # Use Markdown headings so the web UI can render these as proper sub-sections.
+        parts.append(_md_h3_block(SUB_IMPACT_AFFECTED, a))
     if d:
-        lines.append(f"### Duration of Outage\n{d}")
+        parts.append(_md_h3_block(SUB_IMPACT_DURATION, d))
     if b:
-        lines.append(f"### Business Impact\n{b}")
-    return "\n".join(lines)
+        parts.append(_md_h3_block(SUB_IMPACT_BUSINESS, b))
+    return "\n\n".join(parts)
 
 
 def _impact_dict_from_markdown(impact_md: str, legacy: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -479,6 +512,7 @@ def save_postmortem(issue_id: str, data: Dict[str, Any]) -> None:
         impact,
         data.get("root_cause") or "",
         resolution,
+        use_impact_placeholder=False,
     )
 
     timeline = data.get("timeline") or []
@@ -538,15 +572,40 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
     }
     _write_meta(bundle, meta)
 
+    imp = data.get("impact_and_severity") or {}
+    use_impact_ph = not (str(imp.get("markdown") or "").strip()) and not any(
+        [
+            (str(imp.get("affected_services") or "").strip()),
+            (str(imp.get("duration_of_outage") or "").strip()),
+            (str(imp.get("business_impact") or "").strip()),
+        ]
+    )
     index_md = build_index_md(
         data.get("incident_summary") or "",
         data.get("impact_and_severity") or {},
         data.get("root_cause") or "",
         data.get("resolution") or {},
+        use_impact_placeholder=use_impact_ph,
     )
     (bundle / INDEX_FILENAME).write_text(index_md, encoding="utf-8")
-    _write_timeline(bundle, data.get("timeline") or [])
-    _write_actions(bundle, data.get("actions_and_follow_up") or [])
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    default_timeline = [
+        {
+            "time": ts,
+            "action": "Replace this row: describe what happened on the incident timeline.",
+        }
+    ]
+    default_actions = [
+        {
+            "task": "(Edit) Describe this follow-up checklist item.",
+            "done": False,
+            "owner": "",
+            "due": "",
+        }
+    ]
+    _write_timeline(bundle, default_timeline)
+    _write_actions(bundle, default_actions)
 
     return bundle
 

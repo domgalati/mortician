@@ -14,12 +14,15 @@ except ImportError:  # pragma: no cover
 
 from .utils import (
     add_timeline_entry_interactive,
+    append_action_item_interactive,
     append_timeline_entry,
     create_postmortem,
-    edit_postmortem,
     edit_postmortem_stateful,
     guided_input,
+    list_action_items,
+    merge_and_save_postmortem,
     print_create_followup,
+    set_action_item_done,
     smart_id_from_title,
 )
 from .ui import show_postmortem
@@ -312,10 +315,36 @@ def main():
     )
     select_issue_id = select_parser.add_argument(
         "issue_id",
-        help="Incident id (sets the active incident used by `mortician edit`/`mortician add`)",
+        help="Incident id (sets the active incident used by `mortician edit`/`mortician add`/`mortician action`)",
         nargs="?",
     )
     select_issue_id.completer = _incident_id_completer  # type: ignore[attr-defined]
+
+    action_parser = subparsers.add_parser(
+        "action",
+        help="Manage checklist items in actions.yaml for the active incident",
+    )
+    action_sub = action_parser.add_subparsers(
+        dest="action_command",
+        required=True,
+        help="Action subcommand",
+    )
+    act_add = action_sub.add_parser(
+        "add",
+        help="Append a follow-up item (done=false). Use --task or pipe stdin for the description.",
+    )
+    act_add.add_argument(
+        "--task",
+        default=None,
+        help="Task description (omit to type interactively or pipe stdin)",
+    )
+    act_add.add_argument("--owner", default=None, help="Owner (optional; empty if omitted with --task)")
+    act_add.add_argument("--due", default=None, help="Due date (optional)")
+    action_sub.add_parser("list", help="List action items with [ ] / [x] checkboxes")
+    act_done = action_sub.add_parser("done", help="Mark item at 1-based index as done")
+    act_done.add_argument("index", type=int, help="Item number from `mortician action list`")
+    act_undo = action_sub.add_parser("undo", help="Mark item at 1-based index as not done")
+    act_undo.add_argument("index", type=int, help="Item number from `mortician action list`")
 
     # Enable shell completions (bash/zsh/fish, and PowerShell if registered).
     if argcomplete is not None:
@@ -328,7 +357,7 @@ def main():
         set_active_issue_id(issue_id)
         if args.guide:
             data = guided_input()
-            edit_postmortem(issue_id, data)
+            merge_and_save_postmortem(issue_id, data)
         print_create_followup(issue_id)
     elif args.command == "select":
         if args.issue_id:
@@ -361,6 +390,23 @@ def main():
             action=args.action,
         )
         sys.exit(code)
+    elif args.command == "action":
+        issue_id = require_active_issue_id()
+        if args.action_command == "add":
+            code = append_action_item_interactive(
+                issue_id,
+                task=args.task,
+                owner=args.owner,
+                due=args.due,
+            )
+            sys.exit(code)
+        if args.action_command == "list":
+            code = list_action_items(issue_id)
+            sys.exit(code)
+        if args.action_command == "done":
+            sys.exit(set_action_item_done(issue_id, args.index, done=True))
+        if args.action_command == "undo":
+            sys.exit(set_action_item_done(issue_id, args.index, done=False))
     elif args.command == "show":
         want_render = bool(args.render) or (
             os.environ.get("MORTICIAN_SHOW_RENDER", "").strip().lower()

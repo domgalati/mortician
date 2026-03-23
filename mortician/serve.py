@@ -17,6 +17,7 @@ from starlette.staticfiles import StaticFiles
 from watchfiles import awatch
 
 from .bundle import (
+    ASSETS_DIRNAME,
     INCIDENTS_DIR,
     find_bundle_dir,
     list_incident_summaries,

@@ -60,10 +60,12 @@ def print_create_followup(issue_id: str) -> None:
     path_hint = f"\n  Bundle: {bundle}" if bundle else ""
     print(
         f"\nNext steps:{path_hint}\n"
-        f"  mortician timeline add {issue_id} --action \"…\"   (or pipe / omit --action for stdin)\n"
-        f"  mortician edit {issue_id} --summary \"…\" --status …\n"
-        f"  mortician serve   # dashboard\n"
-        f"  Or edit index.md / timeline.yaml under the bundle folder.\n"
+        f"  mortician select {issue_id}  # set active incident\n"
+        f"  mortician add --action \"…\"   # timeline (or pipe / omit --action for editor)\n"
+        f"  mortician action add --task \"…\"   # checklist item in actions.yaml\n"
+        f"  mortician edit --summary \"…\" --status …\n"
+        f"  mortician serve   # launch browser dashboard\n"
+        f"  Or edit index.md / timeline.yaml / actions.yaml under the bundle folder.\n"
     )
 
 
@@ -300,9 +302,8 @@ def _extract_impact_legacy_fields_from_markdown(
       - business_impact
 
     Expected (by `build_index_md()`):
-      - **Affected Services:** <text>
-      - ### Duration of Outage
-      - ### Business Impact
+      - **Affected Services:** <text> (legacy one-line)
+      - ### Affected Services / ### Duration of Outage / ### Business Impact
     """
     md = (impact_markdown or "").strip()
     out = {
@@ -313,16 +314,7 @@ def _extract_impact_legacy_fields_from_markdown(
     if not md:
         return out
 
-    # affected services: "**Affected Services:** <line>"
-    m = re.search(
-        r"\*\*Affected Services:\*\*\s*(?P<v>[^\n\r]+)",
-        md,
-        flags=re.IGNORECASE,
-    )
-    if m:
-        out["affected_services"] = (m.group("v") or "").strip()
-
-    # section capture for duration/business (until next ### heading)
+    # section capture (until next ### heading)
     def extract_section(heading: str) -> str:
         pattern = (
             r"^###\s*"
@@ -336,9 +328,53 @@ def _extract_impact_legacy_fields_from_markdown(
         body = (m2.group("body") or "").strip()
         return body
 
+    # affected services: "**Affected Services:** <line>"
+    m = re.search(
+        r"\*\*Affected Services:\*\*\s*(?P<v>[^\n\r]+)",
+        md,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        out["affected_services"] = (m.group("v") or "").strip()
+
+    aff_heading = extract_section("Affected Services")
+    if aff_heading:
+        out["affected_services"] = aff_heading
+
     out["duration_of_outage"] = extract_section("Duration of Outage")
     out["business_impact"] = extract_section("Business Impact")
     return out
+
+
+def coalesce_impact_fields(data: Dict[str, Any]) -> None:
+    """
+    If legacy impact fields are populated, drop markdown so save uses legacy path.
+
+    Avoids stale create-time placeholder markdown after guided merge fills legacy keys.
+    """
+    imp = data.get("impact_and_severity")
+    if not isinstance(imp, dict):
+        return
+    md = imp.get("markdown")
+    if not isinstance(md, str) or not md.strip():
+        return
+    a = (imp.get("affected_services") or "").strip()
+    d = (imp.get("duration_of_outage") or "").strip()
+    b = (imp.get("business_impact") or "").strip()
+    if a or d or b:
+        imp.pop("markdown", None)
+
+
+def merge_and_save_postmortem(issue_id: str, patch: Dict[str, Any]) -> None:
+    """Deep-merge a patch dict into the incident and persist (e.g. create --guide)."""
+    data = load_postmortem(issue_id)
+    if data is None:
+        print(f"No postmortem found for issue: {issue_id}")
+        return
+    _merge_postmortem_dict(data, patch)
+    coalesce_impact_fields(data)
+    save_postmortem(issue_id, data)
+    print(f"Postmortem '{issue_id}' updated successfully.")
 
 
 def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) -> None:
@@ -812,69 +848,152 @@ def guided_input():
     return data
 
 
-def edit_postmortem(issue_id, args):
-    """Edit specific fields of a postmortem based on CLI arguments or dict."""
+def _action_item_is_done(item: Dict[str, Any]) -> bool:
+    if item.get("done") is True:
+        return True
+    if item.get("completed") is True:
+        return True
+    return False
+
+
+def append_action_item(
+    issue_id: str,
+    *,
+    task: str,
+    owner: str = "",
+    due: str = "",
+) -> int:
+    """Append one checklist item to actions.yaml. Returns 0 on success."""
     data = load_postmortem(issue_id)
     if data is None:
-        print(f"No postmortem found for issue: {issue_id}")
-        return
-
-    if isinstance(args, dict):
-        _merge_postmortem_dict(data, args)
-        save_postmortem(issue_id, data)
-        print(f"Postmortem '{issue_id}' updated successfully.")
-        return
-
-    no_input = getattr(args, "no_input", False)
-
-    if args.status:
-        data["overview"]["status"] = args.status
-        st = args.status.lower()
-        if st == "resolved":
-            if args.perm_fix:
-                data["resolution"]["permanent_fix"] = args.perm_fix
-            elif not no_input:
-                fix = input("Enter permanent fix (Enter to leave unchanged): ").strip()
-                if fix:
-                    data["resolution"]["permanent_fix"] = fix
-        elif st == "temporary resolution":
-            if args.temp_fix:
-                data["resolution"]["temporary_fix"] = args.temp_fix
-            elif not no_input:
-                fix = input("Enter temporary fix (Enter to leave unchanged): ").strip()
-                if fix:
-                    data["resolution"]["temporary_fix"] = fix
-
-    if args.owner:
-        data["incident_owner"] = args.owner
-    if args.participants:
-        data["incident_participants"] = args.participants
-    if args.summary:
-        data["incident_summary"] = args.summary
-    if args.root_cause:
-        data["root_cause"] = args.root_cause
-    if args.temp_fix:
-        data["resolution"]["temporary_fix"] = args.temp_fix
-    if args.perm_fix:
-        data["resolution"]["permanent_fix"] = args.perm_fix
-
-    if getattr(args, "severity", None) is not None:
-        data.setdefault("overview", {})["severity"] = args.severity
-
-    # --timeline is optional; --add-entry alone appends (fixes silent no-op).
-    if args.add_entry:
-        entry = {}
-        for kv in args.add_entry:
-            if "=" not in kv:
-                print(f"Warning: skipping timeline fragment (expected KEY=VALUE): {kv!r}")
-                continue
-            k, v = kv.split("=", 1)
-            entry[k.strip()] = v
-        if entry:
-            data["timeline"].append(entry)
-
+        print(f"No postmortem found for issue: {issue_id}", file=sys.stderr)
+        return 1
+    t = (task or "").strip()
+    if not t:
+        print("Error: task text is empty (use --task or pipe stdin).", file=sys.stderr)
+        return 1
+    item: Dict[str, Any] = {
+        "task": t,
+        "done": False,
+        "owner": (owner or "").strip(),
+        "due": (due or "").strip(),
+    }
+    data.setdefault("actions_and_follow_up", [])
+    data["actions_and_follow_up"].append(item)
     save_postmortem(issue_id, data)
-    print(f"Postmortem '{issue_id}' updated successfully.")
+    print(f"Action item added to '{issue_id}'.")
+    return 0
+
+
+def append_action_item_interactive(
+    issue_id: str,
+    *,
+    task: Optional[str] = None,
+    owner: Optional[str] = None,
+    due: Optional[str] = None,
+) -> int:
+    """Add follow-up item; read task from stdin when piped and ``--task`` omitted."""
+    piped = (task is None) and (not sys.stdin.isatty())
+    stdin_text = ""
+    if piped:
+        stdin_text = (sys.stdin.read() or "").strip()
+
+    orig_stdin = sys.stdin
+    tty_in = None
+    try:
+        if piped:
+            tty_path = "/dev/tty" if os.name != "nt" else "CONIN$"
+            try:
+                tty_in = open(tty_path, "r", encoding="utf-8")
+                sys.stdin = tty_in
+            except Exception:
+                sys.stdin = orig_stdin
+
+        if task is not None:
+            t_val = task.strip()
+        elif piped:
+            t_val = stdin_text
+        else:
+            t_val = input("Task description: ").strip()
+
+        if not t_val:
+            print("Error: task text is empty (use --task or pipe stdin).", file=sys.stderr)
+            return 1
+
+        # With explicit --task or piped task, default owner/due to empty unless flags set.
+        if owner is not None:
+            o_val = owner.strip()
+        elif piped or task is not None:
+            o_val = ""
+        else:
+            o_val = input("Owner (optional): ").strip()
+
+        if due is not None:
+            d_val = due.strip()
+        elif piped or task is not None:
+            d_val = ""
+        else:
+            d_val = input("Due date (optional): ").strip()
+    finally:
+        sys.stdin = orig_stdin
+        if tty_in is not None:
+            try:
+                tty_in.close()
+            except Exception:
+                pass
+
+    return append_action_item(issue_id, task=t_val, owner=o_val, due=d_val)
+
+
+def list_action_items(issue_id: str) -> int:
+    data = load_postmortem(issue_id)
+    if data is None:
+        print(f"No postmortem found for issue: {issue_id}", file=sys.stderr)
+        return 1
+    items = data.get("actions_and_follow_up") or []
+    if not items:
+        print("(No action items.)")
+        return 0
+    for i, raw in enumerate(items, start=1):
+        if not isinstance(raw, dict):
+            print(f"  {i}. {raw!r}")
+            continue
+        mark = "[x]" if _action_item_is_done(raw) else "[ ]"
+        title = (raw.get("task") or raw.get("title") or "").strip() or "(no description)"
+        extra = []
+        if (raw.get("owner") or "").strip():
+            extra.append(f"owner={raw['owner']}")
+        if (raw.get("due") or "").strip():
+            extra.append(f"due={raw['due']}")
+        suffix = f"  ({'; '.join(extra)})" if extra else ""
+        print(f"  {i}. {mark} {title}{suffix}")
+    return 0
+
+
+def set_action_item_done(issue_id: str, index: int, *, done: bool) -> int:
+    """1-based index. Returns 0 on success."""
+    data = load_postmortem(issue_id)
+    if data is None:
+        print(f"No postmortem found for issue: {issue_id}", file=sys.stderr)
+        return 1
+    items = data.get("actions_and_follow_up") or []
+    if index < 1 or index > len(items):
+        print(
+            f"Error: no action item at index {index} (1..{len(items)}).",
+            file=sys.stderr,
+        )
+        return 1
+    item = items[index - 1]
+    if not isinstance(item, dict):
+        print("Error: item is not a dict; edit actions.yaml manually.", file=sys.stderr)
+        return 1
+    item["done"] = bool(done)
+    if "completed" in item:
+        del item["completed"]
+    save_postmortem(issue_id, data)
+    state = "done" if done else "not done"
+    print(f"Action item {index} marked {state} on '{issue_id}'.")
+    return 0
 
 
 def append_timeline_entry(
