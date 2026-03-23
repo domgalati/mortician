@@ -1,44 +1,37 @@
-"""Local HTTP dashboard: JSON postmortems + SSE when files change."""
+"""Local HTTP dashboard: incident bundles + SSE when files change."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.requests import Request
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from watchfiles import awatch
 
-from .utils import POSTMORTEMS_DIR, load_postmortem
+from .bundle import (
+    INCIDENTS_DIR,
+    find_bundle_dir,
+    list_incident_summaries,
+    load_postmortem,
+    write_index_md_atomic,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# SSE subscribers; each holds a small queue so slow clients do not block others.
 _subscribers: List[asyncio.Queue] = []
 _SSE_QUEUE_MAX = 8
 
 
 def _summaries():
-    rows = []
-    for path in sorted(POSTMORTEMS_DIR.glob("*.json")):
-        data = load_postmortem(path.stem)
-        if data is None:
-            continue
-        overview = data.get("overview") or {}
-        rows.append(
-            {
-                "id": path.stem,
-                "title": overview.get("incident_title", ""),
-                "status": overview.get("status", ""),
-                "date": overview.get("date", ""),
-            }
-        )
-    return rows
+    return list_incident_summaries()
 
 
 def _notify_subscribers() -> None:
@@ -56,12 +49,12 @@ def _notify_subscribers() -> None:
 
 
 async def _watch_loop() -> None:
-    POSTMORTEMS_DIR.mkdir(exist_ok=True)
+    INCIDENTS_DIR.mkdir(parents=True, exist_ok=True)
     events: asyncio.Queue = asyncio.Queue()
 
     async def pump() -> None:
         try:
-            async for _ in awatch(POSTMORTEMS_DIR):
+            async for _ in awatch(INCIDENTS_DIR):
                 await events.put(None)
         except asyncio.CancelledError:
             raise
@@ -96,11 +89,11 @@ async def lifespan(app: Starlette):
         pass
 
 
-async def api_list(_request):
+async def api_list(_request: Request):
     return JSONResponse(_summaries())
 
 
-async def api_get(request):
+async def api_get(request: Request):
     issue_id = request.path_params["issue_id"]
     data = load_postmortem(issue_id)
     if data is None:
@@ -108,7 +101,53 @@ async def api_get(request):
     return JSONResponse(data)
 
 
-async def api_events(_request):
+async def put_index_md(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return JSONResponse({"error": "invalid encoding"}, status_code=400)
+    write_index_md_atomic(bundle, text)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
+def _safe_asset_file(bundle: Path, asset_path: str) -> Optional[Path]:
+    if not asset_path or asset_path.startswith(("/", "\\")):
+        return None
+    parts = Path(asset_path).parts
+    if ".." in parts:
+        return None
+    base = bundle / ASSETS_DIRNAME
+    candidate = (base / asset_path).resolve()
+    root = base.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+async def api_asset(request: Request):
+    issue_id = request.path_params["issue_id"]
+    asset_path = request.path_params["asset_path"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    path = _safe_asset_file(bundle, asset_path)
+    if path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    media_type, _ = mimetypes.guess_type(str(path))
+    return FileResponse(path, media_type=media_type or "application/octet-stream")
+
+
+async def api_events(_request: Request):
     queue: asyncio.Queue = asyncio.Queue(maxsize=_SSE_QUEUE_MAX)
     _subscribers.append(queue)
 
@@ -137,6 +176,16 @@ async def api_events(_request):
 
 routes = [
     Route("/api/postmortems", endpoint=api_list, methods=["GET"]),
+    Route(
+        "/api/postmortems/{issue_id}/index.md",
+        endpoint=put_index_md,
+        methods=["PUT"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/assets/{asset_path:path}",
+        endpoint=api_asset,
+        methods=["GET"],
+    ),
     Route("/api/postmortems/{issue_id}", endpoint=api_get, methods=["GET"]),
     Route("/api/events", endpoint=api_events, methods=["GET"]),
     Mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static"),

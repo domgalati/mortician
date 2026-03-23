@@ -1,12 +1,15 @@
-def json_to_markdown(data):
-    """Convert a postmortem JSON structure into a formatted Markdown string."""
+def postmortem_to_markdown(data):
+    """Convert a postmortem dict into a formatted Markdown string."""
     lines = []
 
     # Overview
-    lines.append(f"# {data['overview'].get('date', '')}: {data['overview'].get('incident_title', '')}")
+    ov = data.get("overview") or {}
+    lines.append(f"# {ov.get('date', '')}: {ov.get('incident_title', '')}")
     lines.append("## Overview")
-    lines.append(f"**Time Created:** {data['overview'].get('time', '')}\\")
-    lines.append(f"**Status:** {data['overview'].get('status', '')}")
+    lines.append(f"**Time Created:** {ov.get('time', '')}\\")
+    lines.append(f"**Status:** {ov.get('status', '')}")
+    if ov.get("severity"):
+        lines.append(f"**Severity:** {ov.get('severity')}")
 
     # Incident Owner & Participants
     lines.append("\n## Incident Owner")
@@ -14,7 +17,10 @@ def json_to_markdown(data):
 
     lines.append("\n## Incident Participants")
     participants = data.get("incident_participants", [])
-    lines.append(", ".join(participants))
+    if isinstance(participants, str):
+        lines.append(participants)
+    else:
+        lines.append(", ".join(participants))
 
     # Summary
     lines.append("\n## Incident Summary")
@@ -23,9 +29,12 @@ def json_to_markdown(data):
     # Impact & Severity
     impact = data.get("impact_and_severity", {})
     lines.append("\n## Impact & Severity")
-    lines.append(f"**Affected Services:** {impact.get('affected_services', '')}")
-    lines.append(f"**Duration of Outage:** {impact.get('duration_of_outage', '')}")
-    lines.append(f"**Business Impact:** {impact.get('business_impact', '')}")
+    if impact.get("markdown"):
+        lines.append(impact["markdown"])
+    else:
+        lines.append(f"**Affected Services:** {impact.get('affected_services', '')}")
+        lines.append(f"**Duration of Outage:** {impact.get('duration_of_outage', '')}")
+        lines.append(f"**Business Impact:** {impact.get('business_impact', '')}")
 
     # Root Cause
     lines.append("\n## Root Cause")
@@ -55,7 +64,11 @@ def json_to_markdown(data):
         for event in timeline:
             time_val = event.get('time', 'N/A')
             action_val = event.get('action', 'N/A')
-            lines.append(f"- **{time_val}**: {action_val}")
+            if isinstance(action_val, str) and '\n' in action_val:
+                lines.append(f"- **{time_val}**:")
+                lines.append(action_val)
+            else:
+                lines.append(f"- **{time_val}**: {action_val}")
     else:
         lines.append("_No timeline entries found._")
 

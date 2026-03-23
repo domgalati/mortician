@@ -2,87 +2,131 @@
 
 ## How it Works
 
-Mortician stores all post-mortem data as JSON files locally, making them easy to backup, version control, or integrate with other tools. When you're ready to formalize your incident report, you can export any post-mortem to markdown format.
+Mortician stores each incident as a **directory bundle** under `incidents/` (YAML + Markdown + optional assets). Long-form narrative lives in `index.md`; structured metadata in `meta.yaml`; the timeline in `timeline.yaml` (multi-line Markdown supported with literal block scalars); follow-up actions in `actions.yaml`. This keeps diffs readable in Git and avoids a single giant JSON file.
+
+When you are ready to share a flat document, you can export any incident to Markdown from the CLI.
 
 ## Installation
-1. Clone the project into a local directoy 
+
+1. Clone the project into a local directory.
 2. Use `pip install .` from the project directory to install.
+
+Optional extras:
+
+- **`pip install 'mortician[rich]'`** — terminal Markdown rendering for `mortician show --render`.
 
 ## Usage
 
-Mortician is designed to capture incident information **as it happens**, not after the fact. Instead of scrambling to remember details hours or days later, you document timeline events, fixes, and observations in real-time during the incident response.
+Mortician is designed to capture incident information **as it happens**, not after the fact. Instead of scrambling to retrieve details hours or days later, you document timeline events, fixes, and observations in real time during the incident response.
 
+### Incident bundle layout
+
+Each incident lives in `incidents/{id}-{title-slug}/`:
+
+| File / directory | Contents |
+|------------------|----------|
+| `meta.yaml` | `id`, `title`, `status`, `severity`, `owner`, `created_at`, `date`, `time`, `participants` |
+| `index.md` | Sections: Summary, Impact & Severity, Root Cause, Resolution (Temporary / Permanent) |
+| `timeline.yaml` | `events:` with `time` and `action` (multi-line Markdown) |
+| `actions.yaml` | Structured follow-up items |
+| `assets/` | Screenshots and attachments |
+
+### CLI overview
 
 ```
-usage: mortician [-h] {create,edit,show} ...
-
-Simple CLI for managing Postmortems
-
-positional arguments:
-    create            Create a new postmortem
-    edit              Edit an existing postmortem
-    show              Show details of a postmortem or list all postmortems
-
-optional arguments:
-  -h, --help          show this help message and exit
-```
-### Create Postmortems
-```
-usage: mortician create [-h] "your-postmortem-title" [--guide]
-
-positional arguments:
-  title    Title for the postmortem ##This will also generate a shorthand ID for the postmortem based on the title.
-
-optional arguments:
-  -h, --help  show this help message and exit
-  --guide     Use guided creation mode
+usage: mortician [-h] {create,edit,show,list,timeline,serve} ...
 ```
 
-### Edit Postmortems
+### Create incidents
+
 ```
-usage: mortician edit [-h] [--status STATUS] [--owner OWNER] [--participants PARTICIPANTS] [--summary SUMMARY] [--root_cause ROOT_CAUSE] [--temp_fix TEMP_FIX] [--perm_fix PERM_FIX] [--timeline]
-                      [--add-entry KEY=VALUE [KEY=VALUE ...]]
+usage: mortician create [-h] TITLE [--guide]
+```
+
+- **TITLE** is the human-readable title. A **short id** is derived automatically (it is not a custom id you choose).
+- After create, the CLI prints suggested next steps (`timeline add`, `edit`, `serve`, bundle path).
+- **`--guide`**: interactive wizard tuned for live incidents. It asks whether the incident is still ongoing; if yes, it records current known state (owner, participants, summary, impact, severity, timeline) and skips resolution prompts, marking status as `Unresolved`. It also uses [questionary](https://github.com/tmbo/questionary) for duration presets and timeline time (“now” vs manual).
+
+### List
+
+```
+usage: mortician list [-h] [--status STATUS] [--date DATE]
+```
+
+Same table as `mortician show` with no `issue_id`. Status filter is case-insensitive.
+
+### Edit
+
+```
+usage: mortician edit [-h] [--status STATUS] [--severity SEVERITY] [--owner OWNER] [--participants PARTICIPANTS]
+                      [--summary SUMMARY] [--root_cause ROOT_CAUSE] [--temp_fix TEMP_FIX] [--perm_fix PERM_FIX]
+                      [--no-input] [--add-entry KEY=VALUE [KEY=VALUE ...]]
                       issue_id
-
-positional arguments:
-  issue_id              Identifier for the postmortem
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --status STATUS       Update the status
-  --owner OWNER         Update the incident owner
-  --participants PARTICIPANTS
-                        Update the participants
-  --summary SUMMARY     Update the incident summary
-  --root_cause ROOT_CAUSE
-                        Update the root cause
-  --temp_fix TEMP_FIX   Update the temporary fix
-  --perm_fix PERM_FIX   Update the permanent fix
-  --timeline            Indicate that timeline entries are being edited
-  --add-entry KEY=VALUE [KEY=VALUE ...]
-                        Add a new timeline entry (e.g. time=12:00 action='alert triggered')
 ```
-### Filter Postmortems
+
+- **`--add-entry`**: appends **one** timeline row.
+- Each fragment is `KEY=VALUE`; only the **first** `=` splits key and value, so values may contain `=`.
+- **`--status`**: with `Resolved` / `Temporary Resolution`, you are prompted for the fix unless you pass **`--perm_fix`** / **`--temp_fix`** or **`--no-input`** (for scripts).
+- **`--severity`**: updates the severity label in `meta.yaml` (e.g. `P1`).
+
+### Timeline (stdin-friendly)
+
 ```
-usage: mortician show [-h] [--status STATUS] [--date DATE] [issue_id]
+usage: mortician timeline add [-h] [--time TIME] [--action ACTION] issue_id
+```
 
-positional arguments:
-  issue_id         Identifier for the postmortem (optional)
+- **`--time`**: optional; defaults to current time (UTC string).
+- **`--action`**: one line. If omitted, the **entire stdin** is used as the Markdown body (good for pipes and multi-line snippets).
 
-optional arguments:
-  -h, --help       show this help message and exit
-  --status STATUS  Filter postmortems by status (e.g., resolved, unresolved)
-  --date DATE      Filter postmortems by date (e.g., 2023-08-15)
+Example:
+
+```bash
+echo "Seeing elevated 503s from checkout API." | mortician timeline add websfail
+mortician timeline add websfail --action "Rollback complete"
+```
+
+### Show
+
+```
+usage: mortician show [-h] [--plain | --render] [--status STATUS] [--date DATE] [issue_id]
+```
+
+Omit `issue_id` to list (same as `mortician list`).
+
+- **Default:** raw Markdown (good for pipes and files).
+- **`--render`:** render in the terminal with [Rich](https://github.com/Textualize/rich) when installed (`pip install 'mortician[rich]'`). If Rich is missing, a one-line hint is printed to stderr and the Markdown is still printed as plain text.
+- **`--plain`:** force raw Markdown (overrides `MORTICIAN_SHOW_RENDER=1`).
+- **Environment:** `MORTICIAN_SHOW_RENDER=1` (or `true` / `yes`) enables `--render` behavior for `mortician show <id>` without the flag.
+
+You can also pipe Markdown to an external viewer, for example [glow](https://github.com/charmbracelet/glow):
+
+```bash
+mortician show incident-id | glow -p
 ```
 
 ### Export to Markdown
-```bash
-# Export a specific post-mortem to markdown
-mortician show incident-123 > postmortem-incident-123.md
 
-# Or pipe directly to your documentation system
+```bash
+mortician show incident-123 > postmortem-incident-123.md
 mortician show incident-123 | pandoc -o postmortem.pdf
 ```
 
+### Local dashboard
+
+```bash
+mortician serve --host 127.0.0.1 --port 8765
+```
+
+Open the printed URL for a live-updating list and detail view (file changes trigger updates).
+
+**HTTP API (selected):**
+
+- `GET /api/postmortems` — list summaries
+- `GET /api/postmortems/{issue_id}` — full incident as JSON (assembled from the bundle)
+- `PUT /api/postmortems/{issue_id}/index.md` — raw Markdown body for `index.md` (UTF-8)
+- `GET /api/postmortems/{issue_id}/assets/{path}` — files under `assets/` (path traversal blocked)
+- `GET /api/events` — Server-Sent Events when bundle files change
+
 ## Note
+
 I am aware that a pathologist usually conducts post-mortems. However, Mortician is a much cooler name.

@@ -74,15 +74,74 @@
       overflow: auto;
       background: rgba(26, 35, 50, 0.6);
     }
+    .sidebar-groups {
+      display: flex;
+      flex-direction: column;
+    }
+    .status-group {
+      border-bottom: 1px solid var(--border);
+    }
+    .status-group:last-child { border-bottom: none; }
+    .status-group summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 0.6rem 0.85rem 0.6rem 1rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      user-select: none;
+    }
+    .status-group summary::-webkit-details-marker { display: none; }
+    .status-group summary .summary-left {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+    }
+    .status-group summary .chev {
+      flex-shrink: 0;
+      width: 0.5rem;
+      height: 0.5rem;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      transform: rotate(-45deg);
+      margin-top: -0.2rem;
+      transition: transform 0.15s ease;
+    }
+    .status-group[open] summary .chev {
+      transform: rotate(45deg);
+      margin-top: 0.1rem;
+    }
+    .status-group summary .count {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--border);
+      padding: 0.12rem 0.45rem;
+      border-radius: 999px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .status-group summary .label-unresolved { color: var(--status-open); }
+    .status-group summary .label-temporary { color: #c9a227; }
+    .status-group summary .label-resolved { color: var(--status-resolved); }
+    .status-group summary .label-other { color: var(--muted); }
     .list {
       list-style: none;
       margin: 0;
-      padding: 0.5rem 0;
+      padding: 0 0 0.4rem;
     }
+    .list.nested { padding-left: 0.35rem; }
     .list button {
       width: 100%;
       text-align: left;
-      padding: 0.65rem 1rem;
+      padding: 0.55rem 0.85rem 0.55rem 1.35rem;
       border: none;
       background: transparent;
       color: var(--text);
@@ -166,6 +225,82 @@
     }
     .timeline .t { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); }
     .timeline .a { margin-top: 0.15rem; }
+    .timeline .a.md { font-size: 0.9rem; }
+    .md {
+      font-size: 0.92rem;
+      line-height: 1.6;
+      color: var(--text);
+    }
+    .md > *:first-child { margin-top: 0; }
+    .md > *:last-child { margin-bottom: 0; }
+    .md p { margin: 0 0 0.65rem; }
+    .md h1, .md h2, .md h3, .md h4 {
+      margin: 1rem 0 0.45rem;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .md h1 { font-size: 1.2rem; }
+    .md h2 { font-size: 1.1rem; }
+    .md h3, .md h4 { font-size: 1rem; }
+    .md ul, .md ol { margin: 0 0 0.65rem; padding-left: 1.35rem; }
+    .md li { margin: 0.25rem 0; }
+    .md blockquote {
+      margin: 0 0 0.65rem;
+      padding: 0.35rem 0 0.35rem 0.85rem;
+      border-left: 3px solid var(--accent-dim);
+      color: var(--muted);
+    }
+    .md code {
+      font-family: var(--mono);
+      font-size: 0.84em;
+      background: rgba(45, 58, 79, 0.65);
+      padding: 0.12em 0.35em;
+      border-radius: 4px;
+    }
+    .md pre {
+      margin: 0 0 0.75rem;
+      padding: 0.75rem 1rem;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+    .md pre code {
+      background: transparent;
+      padding: 0;
+      font-size: inherit;
+    }
+    .md table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 0.75rem;
+      font-size: 0.88rem;
+    }
+    .md th, .md td {
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.55rem;
+      text-align: left;
+    }
+    .md th { background: rgba(45, 58, 79, 0.4); }
+    .md a { color: var(--accent); }
+    .md a:hover { text-decoration: underline; }
+    .md hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1rem 0;
+    }
+    .md-subtitle {
+      margin: 0.85rem 0 0.35rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .md-subtitle:first-child { margin-top: 0; }
   </style>
 </head>
 <body>
@@ -178,10 +313,12 @@
   </header>
   <div class="layout">
     <aside>
-      <ul class="list" id="incidentList"></ul>
+      <div class="sidebar-groups" id="incidentList"></div>
     </aside>
     <main id="main"></main>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" crossorigin="anonymous"></script>
   <script>
     const listEl = document.getElementById("incidentList");
     const mainEl = document.getElementById("main");
@@ -190,6 +327,44 @@
 
     let selectedId = null;
     let summaries = [];
+
+    const SIDEBAR_COLLAPSED_KEY = "mortician.sidebarCollapsed";
+
+    const STATUS_BUCKETS = [
+      { key: "unresolved", label: "Unresolved", labelClass: "label-unresolved" },
+      { key: "temporary", label: "Temporary resolution", labelClass: "label-temporary" },
+      { key: "resolved", label: "Resolved", labelClass: "label-resolved" },
+      { key: "other", label: "Other", labelClass: "label-other" },
+    ];
+
+    function statusBucket(raw) {
+      const s = (raw || "").toLowerCase();
+      if (s.includes("unresolved")) return "unresolved";
+      if (s.includes("temporary")) return "temporary";
+      if (s.includes("resolved")) return "resolved";
+      return "other";
+    }
+
+    function getCollapsedBuckets() {
+      try {
+        return new Set(JSON.parse(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) || "[]"));
+      } catch {
+        return new Set();
+      }
+    }
+
+    function persistCollapsedBucket(bucketKey, collapsed) {
+      const s = getCollapsedBuckets();
+      if (collapsed) s.add(bucketKey);
+      else s.delete(bucketKey);
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify([...s]));
+    }
+
+    listEl.addEventListener("toggle", (e) => {
+      const el = e.target;
+      if (el.tagName !== "DETAILS" || !el.dataset.bucket) return;
+      persistCollapsedBucket(el.dataset.bucket, !el.open);
+    });
 
     function statusClass(status) {
       const s = (status || "").toLowerCase();
@@ -204,32 +379,93 @@
       return d.innerHTML;
     }
 
+    function renderMd(raw) {
+      const t = raw == null ? "" : String(raw);
+      if (!t.trim()) return "";
+      if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
+        return esc(t).replace(/\n/g, "<br>");
+      }
+      try {
+        const html = marked.parse(t, { gfm: true, breaks: false });
+        return DOMPurify.sanitize(html);
+      } catch (_) {
+        return esc(t).replace(/\n/g, "<br>");
+      }
+    }
+
     function renderList() {
       listEl.innerHTML = "";
       if (!summaries.length) {
-        const li = document.createElement("li");
-        li.innerHTML = '<p class="empty" style="padding:1rem">No postmortems yet.</p>';
-        listEl.appendChild(li);
+        const p = document.createElement("p");
+        p.className = "empty";
+        p.style.padding = "1rem";
+        p.textContent = "No postmortems yet.";
+        listEl.appendChild(p);
         return;
       }
+
+      const collapsed = getCollapsedBuckets();
+      const byBucket = new Map();
+      for (const b of STATUS_BUCKETS) byBucket.set(b.key, []);
+
       for (const row of summaries) {
-        const li = document.createElement("li");
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.dataset.id = row.id;
-        if (row.id === selectedId) btn.classList.add("active");
-        btn.innerHTML =
-          esc(row.title || row.id) +
-          '<span class="meta">' +
-          esc(row.status || "—") + " · " + esc(row.date || "—") +
-          "</span>";
-        btn.addEventListener("click", () => {
-          selectedId = row.id;
-          renderList();
-          loadDetail(row.id);
+        const k = statusBucket(row.status);
+        if (!byBucket.has(k)) byBucket.set(k, []);
+        byBucket.get(k).push(row);
+      }
+
+      for (const rows of byBucket.values()) {
+        rows.sort((a, b) => {
+          const da = String(a.date || "");
+          const db = String(b.date || "");
+          if (da !== db) return db.localeCompare(da);
+          return String(a.title || a.id).localeCompare(String(b.title || b.id));
         });
-        li.appendChild(btn);
-        listEl.appendChild(li);
+      }
+
+      for (const def of STATUS_BUCKETS) {
+        const rows = byBucket.get(def.key) || [];
+        if (!rows.length) continue;
+
+        const details = document.createElement("details");
+        details.className = "status-group";
+        details.dataset.bucket = def.key;
+        const hasSelectionHere =
+          Boolean(selectedId) && rows.some((r) => r.id === selectedId);
+        details.open = hasSelectionHere ? true : !collapsed.has(def.key);
+
+        const summary = document.createElement("summary");
+        summary.innerHTML =
+          '<span class="summary-left"><span class="chev" aria-hidden="true"></span>' +
+          '<span class="' + esc(def.labelClass) + '">' + esc(def.label) + "</span></span>" +
+          '<span class="count">' + rows.length + "</span>";
+        details.appendChild(summary);
+
+        const ul = document.createElement("ul");
+        ul.className = "list nested";
+        for (const row of rows) {
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.dataset.id = row.id;
+          if (row.id === selectedId) btn.classList.add("active");
+          const metaLine =
+            def.key === "other" && row.status
+              ? row.status + " · " + (row.date || "—")
+              : row.date || "—";
+          btn.innerHTML =
+            esc(row.title || row.id) +
+            '<span class="meta">' + esc(metaLine) + "</span>";
+          btn.addEventListener("click", () => {
+            selectedId = row.id;
+            renderList();
+            loadDetail(row.id);
+          });
+          li.appendChild(btn);
+          ul.appendChild(li);
+        }
+        details.appendChild(ul);
+        listEl.appendChild(details);
       }
     }
 
@@ -277,7 +513,7 @@
             const rest = keys.filter((k) => k !== "time");
             body = rest.map((k) => k + ": " + String(ev[k])).join(" · ");
           }
-          return "<li><div class=\"t\">" + esc(timeVal) + "</div><div class=\"a\">" + esc(body) + "</div></li>";
+          return "<li><div class=\"t\">" + esc(timeVal) + "</div><div class=\"a md\">" + renderMd(body) + "</div></li>";
         }).join("") + "</ul>";
       } else {
         tlHtml = "<p class=\"empty\">No timeline entries.</p>";
@@ -285,6 +521,23 @@
 
       const imp = d.impact_and_severity || {};
       const res = d.resolution || {};
+
+      let impactBlock = "";
+      if (imp.markdown && String(imp.markdown).trim()) {
+        impactBlock = '<div class="md">' + renderMd(imp.markdown) + "</div>";
+      } else {
+        impactBlock =
+          "<p>" +
+          "Affected: " + esc(imp.affected_services) + "<br/>" +
+          "Duration: " + esc(imp.duration_of_outage) + "<br/>" +
+          "Business: " + esc(imp.business_impact) +
+          "</p>";
+      }
+
+      const summaryMd = renderMd(d.incident_summary);
+      const rootMd = renderMd(d.root_cause);
+      const tempMd = renderMd(res.temporary_fix);
+      const permMd = renderMd(res.permanent_fix);
 
       mainEl.innerHTML =
         '<div class="detail">' +
@@ -294,17 +547,13 @@
         "<p>Date: " + esc(ov.date) + " · Time: " + esc(ov.time) + "</p></section>" +
         "<section><h3>Owner</h3><p>" + esc(d.incident_owner) + "</p></section>" +
         "<section><h3>Participants</h3><p>" + esc(partStr) + "</p></section>" +
-        "<section><h3>Summary</h3><p>" + esc(d.incident_summary) + "</p></section>" +
-        "<section><h3>Impact</h3><p>" +
-        "Affected: " + esc(imp.affected_services) + "<br/>" +
-        "Duration: " + esc(imp.duration_of_outage) + "<br/>" +
-        "Business: " + esc(imp.business_impact) +
-        "</p></section>" +
-        "<section><h3>Root cause</h3><p>" + esc(d.root_cause) + "</p></section>" +
-        "<section><h3>Resolution</h3><p>" +
-        "<strong>Temp:</strong> " + esc(res.temporary_fix) + "<br/>" +
-        "<strong>Perm:</strong> " + esc(res.permanent_fix) +
-        "</p></section>" +
+        "<section><h3>Summary</h3><div class=\"md\">" + summaryMd + "</div></section>" +
+        "<section><h3>Impact</h3>" + impactBlock + "</section>" +
+        "<section><h3>Root cause</h3><div class=\"md\">" + rootMd + "</div></section>" +
+        "<section><h3>Resolution</h3>" +
+        '<p class="md-subtitle">Temporary</p><div class="md">' + tempMd + "</div>" +
+        '<p class="md-subtitle">Permanent</p><div class="md">' + permMd + "</div>" +
+        "</section>" +
         "<section><h3>Timeline</h3>" + tlHtml + "</section>" +
         "</div>";
     }

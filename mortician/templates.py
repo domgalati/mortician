@@ -4,6 +4,7 @@ DEFAULT_POSTMORTEM = {
         "date": "",
         "time": "",
         "status": "",  # "Unresolved", "Temporary Resolution", or "Resolved"
+        "severity": "",
     },
     "incident_owner": "",
     "incident_participants": "",
