@@ -11,7 +11,7 @@ import tempfile
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import AbstractSet, Any, Dict, List, Optional, Sequence, Tuple
 
 from .bundle import (
     INCIDENTS_DIR,
@@ -100,9 +100,8 @@ def _read_multiline_block_default(heading: str, default_value: Optional[str]) ->
     """Read lines until a blank line; return default if first line is blank."""
     print(heading)
     if default_value is not None and str(default_value).strip():
+        print(f"Default: {default_value}")
         print("(Press Enter on an empty first line to accept the default.)")
-        print("Default:")
-        print(default_value)
     else:
         print("(Enter a blank line when finished.)")
 
@@ -196,6 +195,54 @@ def _edit_text_in_editor(initial_text: str, *, field_label: str) -> str:
                 tty_in.close()
             except Exception:
                 pass
+
+
+def _format_resolved_bundle_document(
+    issue_id: str,
+    items: List[tuple[Sequence[str], str]],
+    preview: Dict[str, Any],
+) -> str:
+    """Build a single editor file with one ``## heading`` per field (non-Textual Resolved flow)."""
+    lines = [
+        f"# mortician — incident {issue_id} — required fields for Resolved",
+        "# Fill each section below its ## heading. Do not remove or rename the ## lines.",
+        "# Save and close the editor when done.",
+        "",
+    ]
+    for path, label in items:
+        current = _get_nested(preview, path) or ""
+        lines.append(f"## {label}")
+        lines.append(str(current))
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _parse_resolved_bundle_document(
+    edited: str,
+    items: List[tuple[Sequence[str], str]],
+) -> Dict[tuple[str, ...], str]:
+    """Parse ``## label`` sections from ``_format_resolved_bundle_document`` output."""
+    lines = edited.splitlines()
+    result: Dict[tuple[str, ...], str] = {}
+    for path, label in items:
+        target = f"## {label}"
+        start: Optional[int] = None
+        for idx, ln in enumerate(lines):
+            if ln.strip() == target:
+                start = idx + 1
+                break
+        if start is None:
+            raise RuntimeError(
+                f"Missing section heading {target!r} in edited file. "
+                "Restore the exact heading line and try again."
+            )
+        chunk_lines: List[str] = []
+        for j in range(start, len(lines)):
+            if lines[j].startswith("## "):
+                break
+            chunk_lines.append(lines[j])
+        result[tuple(path)] = "\n".join(chunk_lines).strip()
+    return result
 
 
 def _get_nested(d: Dict[str, Any], path: Sequence[str]) -> Any:
@@ -377,6 +424,33 @@ def merge_and_save_postmortem(issue_id: str, patch: Dict[str, Any]) -> None:
     print(f"Postmortem '{issue_id}' updated successfully.")
 
 
+def _apply_resolved_field_edit(
+    updates: Dict[str, Any],
+    preview: Dict[str, Any],
+    path: Sequence[str],
+    edited: str,
+    derived_impact: Dict[str, str],
+    legacy_impact_fields: AbstractSet[str],
+) -> None:
+    """Apply one Resolved required-field edit and mirror impact/markdown rules used by ``edit``."""
+    _set_nested(updates, path, edited)
+    if (
+        len(path) == 2
+        and path[0] == "impact_and_severity"
+        and path[1] in legacy_impact_fields
+    ):
+        if derived_impact:
+            for k in legacy_impact_fields:
+                if _get_nested(updates, ["impact_and_severity", k]) is None:
+                    _set_nested(
+                        updates,
+                        ["impact_and_severity", k],
+                        derived_impact.get(k, ""),
+                    )
+        _set_nested(updates, ["impact_and_severity", "markdown"], "")
+    _set_nested(preview, path, edited)
+
+
 def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) -> None:
     """
     Stateful/editor-driven edit operation.
@@ -526,7 +600,9 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
             status_value = status_map[normalized]
         else:
             raise ValueError("status must be one of: Unresolved, Temporary Resolution, Resolved")
-        _set_nested(updates, ["overview", "status"], status_value)
+        # Defer persisting Resolved until required-field interaction succeeds (see block below).
+        if status_value != "Resolved":
+            _set_nested(updates, ["overview", "status"], status_value)
 
     maybe_update(getattr(args, "severity", None), ["overview", "severity"], label="severity")
 
@@ -616,38 +692,73 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
                     f"(missing: {', '.join(missing_labels)})."
                 )
         else:
-            selected_required: List[tuple[Sequence[str], str]] = []
-            for path, label in empty_candidates:
-                require_it = _prompt_yes_no_default(
-                    f"'{label}' is empty. Require it for Resolved?",
-                    default_yes=True,
-                )
-                if require_it:
-                    selected_required.append((path, label))
+            if empty_candidates:
+                preview_values = {
+                    tuple(p): str(_get_nested(preview, p) or "")
+                    for p, _ in empty_candidates
+                }
+                used_rich_prompts = False
+                if sys.stdin.isatty() and sys.stdout.isatty():
+                    try:
+                        from .rich_resolved import run_resolved_prompts
+                    except ImportError:
+                        pass
+                    else:
+                        wiz = run_resolved_prompts(
+                            issue_id, empty_candidates, preview_values
+                        )
+                        if wiz is None:
+                            print(
+                                "Resolved edit cancelled; no changes saved.",
+                                file=sys.stderr,
+                            )
+                            raise SystemExit(1)
+                        for path_tup, edited in wiz.items():
+                            _apply_resolved_field_edit(
+                                updates,
+                                preview,
+                                path_tup,
+                                edited,
+                                derived_impact,
+                                legacy_impact_fields,
+                            )
+                        used_rich_prompts = True
+                if not used_rich_prompts:
+                    selected_required: List[tuple[Sequence[str], str]] = []
+                    for path, label in empty_candidates:
+                        require_it = _prompt_yes_no_default(
+                            f"'{label}' is empty. Require it for Resolved?",
+                            default_yes=True,
+                        )
+                        if require_it:
+                            selected_required.append((path, label))
 
-            for path, label in selected_required:
-                current = _get_nested(preview, path) or ""
-                edited = _edit_text_in_editor(str(current), field_label=label).strip()
-                if not edited:
-                    raise RuntimeError(f"'{label}' is required for Resolved and cannot be empty.")
-
-                _set_nested(updates, path, edited)
-                if (
-                    len(path) == 2
-                    and path[0] == "impact_and_severity"
-                    and path[1] in legacy_impact_fields
-                ):
-                    # Preserve other impact fields from markdown when switching serialization.
-                    if derived_impact:
-                        for k in legacy_impact_fields:
-                            if _get_nested(updates, ["impact_and_severity", k]) is None:
-                                _set_nested(
-                                    updates,
-                                    ["impact_and_severity", k],
-                                    derived_impact.get(k, ""),
+                    if selected_required:
+                        combined = _format_resolved_bundle_document(
+                            issue_id, selected_required, preview
+                        )
+                        edited_file = _edit_text_in_editor(
+                            combined, field_label="resolved-fields"
+                        )
+                        parsed = _parse_resolved_bundle_document(
+                            edited_file, selected_required
+                        )
+                        for path, label in selected_required:
+                            edited = parsed[tuple(path)].strip()
+                            if not edited:
+                                raise RuntimeError(
+                                    f"'{label}' is required for Resolved and cannot be empty."
                                 )
-                    _set_nested(updates, ["impact_and_severity", "markdown"], "")
-                _set_nested(preview, path, edited)
+                            _apply_resolved_field_edit(
+                                updates,
+                                preview,
+                                path,
+                                edited,
+                                derived_impact,
+                                legacy_impact_fields,
+                            )
+
+        _set_nested(updates, ["overview", "status"], status_value)
 
     # Timeline append (back-compat)
     if getattr(args, "add_entry", None):
@@ -766,9 +877,8 @@ def guided_input():
     print()
     print("--- Incident summary ---")
     print(
-        "Short narrative of what is going on (saved as Markdown in the bundle). "
-        "You can use placeholders $date, $utc, and $host; they are replaced when saved with: "
-        f"{local_date}, {utc_iso}, {host}."
+        "You can use placeholders as described below: "
+        f"$date: {local_date}, $utc: {utc_iso}, $host: {host}."
     )
     summary_template = "Investigating issue on $host which started on $date (UTC: $utc)."
     summary_default = _inject_variable_tokens(summary_template, token_values)

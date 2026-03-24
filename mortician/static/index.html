@@ -319,6 +319,16 @@
       cursor: pointer;
       flex-shrink: 0;
     }
+    .section-head .btn-edit-section:not(.btn-add-action) {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .section-head:hover .btn-edit-section:not(.btn-add-action),
+    .section-head:focus-within .btn-edit-section:not(.btn-add-action) {
+      opacity: 1;
+      pointer-events: auto;
+    }
     .btn-edit-section:hover {
       color: var(--accent);
       border-color: var(--accent-dim);
@@ -487,6 +497,19 @@
     .timeline .t { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); }
     .timeline .a { margin-top: 0.15rem; }
     .timeline .a.md { font-size: 0.9rem; }
+    .timeline .timeline-body {
+      cursor: pointer;
+      border-radius: 6px;
+      padding: 0.2rem 0.45rem;
+      margin: -0.2rem -0.45rem;
+      outline: none;
+    }
+    .timeline .timeline-body:hover {
+      background: rgba(91, 159, 212, 0.1);
+    }
+    .timeline .timeline-body:focus-visible {
+      box-shadow: 0 0 0 2px var(--accent-dim);
+    }
     .md {
       font-size: 0.92rem;
       line-height: 1.6;
@@ -632,8 +655,11 @@
     let activeSection = null;
 
     let lastActions = [];
+    let lastTimeline = [];
     let actionEditBody = null;
     let actionEditSnapshot = null;
+    let timelineEditBody = null;
+    let timelineEditSnapshot = null;
 
     const SIDEBAR_COLLAPSED_KEY = "mortician.sidebarCollapsed";
     const THEME_KEY = "mortician.theme";
@@ -824,6 +850,22 @@
       actionEditSnapshot = null;
     }
 
+    function onTimelineEditKeydown(ev) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeTimelineRowEditor();
+      }
+    }
+
+    function closeTimelineRowEditor() {
+      document.removeEventListener("keydown", onTimelineEditKeydown);
+      if (timelineEditBody && timelineEditSnapshot != null) {
+        timelineEditBody.innerHTML = timelineEditSnapshot;
+      }
+      timelineEditBody = null;
+      timelineEditSnapshot = null;
+    }
+
     async function patchAction(index, payload) {
       if (!selectedId) return false;
       try {
@@ -881,11 +923,69 @@
       }
     }
 
+    async function postTimeline(payload) {
+      if (!selectedId) return false;
+      try {
+        const r = await fetch(
+          "/api/postmortems/" + encodeURIComponent(selectedId) + "/timeline",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (!r.ok) {
+          let msg = "Could not add timeline event";
+          try {
+            const j = await r.json();
+            if (j.error) msg = j.error;
+          } catch (_) {}
+          alert(msg);
+          return false;
+        }
+        return true;
+      } catch (_) {
+        alert("Network error");
+        return false;
+      }
+    }
+
+    async function patchTimeline(index, payload) {
+      if (!selectedId) return false;
+      try {
+        const r = await fetch(
+          "/api/postmortems/" +
+            encodeURIComponent(selectedId) +
+            "/timeline/" +
+            index,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (!r.ok) {
+          let msg = "Update failed";
+          try {
+            const j = await r.json();
+            if (j.error) msg = j.error;
+          } catch (_) {}
+          alert(msg);
+          return false;
+        }
+        return true;
+      } catch (_) {
+        alert("Network error");
+        return false;
+      }
+    }
+
     function openNewActionEditor() {
       const host = document.getElementById("actionNewHost");
       if (!host || !selectedId) return;
       destroyActiveEditor();
       closeActionRowEditor();
+      closeTimelineRowEditor();
       host.innerHTML =
         '<form class="action-edit-form">' +
         '<label class="act-field"><span>Task</span><textarea name="task" rows="3"></textarea></label>' +
@@ -920,6 +1020,47 @@
       form.elements.task.focus();
     }
 
+    function openNewTimelineEditor() {
+      const host = document.getElementById("timelineNewHost");
+      if (!host || !selectedId) return;
+      destroyActiveEditor();
+      closeActionRowEditor();
+      closeTimelineRowEditor();
+      host.innerHTML =
+        '<form class="action-edit-form">' +
+        '<label class="act-field"><span>Time</span><input type="text" name="time" autocomplete="off" placeholder="2026-03-24 14:30 UTC" /></label>' +
+        '<label class="act-field"><span>Action</span><textarea name="action" rows="3"></textarea></label>' +
+        '<div class="editor-actions">' +
+        '<button type="submit" class="btn-save">Save</button>' +
+        '<button type="button" class="btn-cancel">Cancel</button>' +
+        "</div></form>";
+      const form = host.querySelector("form");
+      form.querySelector(".btn-cancel").addEventListener("click", () => {
+        host.innerHTML = "";
+      });
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const timeVal = String(form.elements.time.value || "").trim();
+        const actionVal = String(form.elements.action.value || "").trim();
+        if (!timeVal) {
+          alert("Time is required.");
+          return;
+        }
+        if (!actionVal) {
+          alert("Action is required.");
+          return;
+        }
+        const ok = await postTimeline({
+          time: timeVal,
+          action: actionVal,
+        });
+        if (!ok) return;
+        host.innerHTML = "";
+        await loadDetail(selectedId);
+      });
+      form.elements.time.focus();
+    }
+
     function openActionRowEditor(bodyEl) {
       const row = bodyEl.closest(".action-row");
       if (!row || row.classList.contains("action-row-plain")) return;
@@ -927,6 +1068,7 @@
       if (Number.isNaN(idx) || !lastActions[idx] || typeof lastActions[idx] !== "object") return;
       destroyActiveEditor();
       closeActionRowEditor();
+      closeTimelineRowEditor();
       const raw = lastActions[idx];
       const task = (raw.task || raw.title || "").trim();
       const owner = (raw.owner || "").trim();
@@ -967,6 +1109,59 @@
       });
       document.addEventListener("keydown", onActionEditKeydown);
       form.elements.task.focus();
+    }
+
+    function openTimelineRowEditor(bodyEl) {
+      const row = bodyEl.closest(".timeline-row");
+      if (!row || row.classList.contains("timeline-row-plain")) return;
+      const idx = parseInt(row.dataset.timelineIndex, 10);
+      if (Number.isNaN(idx) || !lastTimeline[idx] || typeof lastTimeline[idx] !== "object") return;
+      destroyActiveEditor();
+      closeActionRowEditor();
+      closeTimelineRowEditor();
+      const raw = lastTimeline[idx];
+      const time = (raw.time || "").trim();
+      const action = (raw.action || "").trim();
+
+      timelineEditBody = bodyEl;
+      timelineEditSnapshot = bodyEl.innerHTML;
+
+      bodyEl.innerHTML =
+        '<form class="action-edit-form">' +
+        '<label class="act-field"><span>Time</span><input type="text" name="time" autocomplete="off" /></label>' +
+        '<label class="act-field"><span>Action</span><textarea name="action" rows="3"></textarea></label>' +
+        '<div class="editor-actions">' +
+        '<button type="submit" class="btn-save">Save</button>' +
+        '<button type="button" class="btn-cancel">Cancel</button>' +
+        "</div></form>";
+
+      const form = bodyEl.querySelector("form");
+      form.elements.time.value = time;
+      form.elements.action.value = action;
+
+      form.querySelector(".btn-cancel").addEventListener("click", () => closeTimelineRowEditor());
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const timeVal = String(form.elements.time.value || "").trim();
+        const actionVal = String(form.elements.action.value || "").trim();
+        if (!timeVal) {
+          alert("Time is required.");
+          return;
+        }
+        if (!actionVal) {
+          alert("Action is required.");
+          return;
+        }
+        const ok = await patchTimeline(idx, {
+          time: timeVal,
+          action: actionVal,
+        });
+        if (!ok) return;
+        closeTimelineRowEditor();
+        await loadDetail(selectedId);
+      });
+      document.addEventListener("keydown", onTimelineEditKeydown);
+      form.elements.time.focus();
     }
 
     function editableBlock(section, innerMdHtml) {
@@ -1089,10 +1284,27 @@
         openNewActionEditor();
         return;
       }
+      if (e.target.id === "btnAddTimeline" || e.target.closest("#btnAddTimeline")) {
+        e.preventDefault();
+        openNewTimelineEditor();
+        return;
+      }
+      const tb = e.target.closest(".timeline-body");
+      if (tb && !tb.querySelector(".action-edit-form")) {
+        e.preventDefault();
+        openTimelineRowEditor(tb);
+        return;
+      }
       const ab = e.target.closest(".action-body");
       if (ab && !ab.querySelector(".action-edit-form")) {
         e.preventDefault();
         openActionRowEditor(ab);
+        return;
+      }
+      const mdWrap = e.target.closest(".md-editable[data-section]");
+      if (mdWrap && !mdWrap.classList.contains("is-editing") && mdWrap.dataset.section) {
+        e.preventDefault();
+        startEdit(mdWrap.dataset.section);
         return;
       }
       const btn = e.target.closest(".btn-edit-section");
@@ -1107,6 +1319,15 @@
       if (!ab || ab.querySelector(".action-edit-form")) return;
       e.preventDefault();
       openActionRowEditor(ab);
+      return;
+    });
+
+    mainEl.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const tb = e.target.closest(".timeline-body");
+      if (!tb || tb.querySelector(".action-edit-form")) return;
+      e.preventDefault();
+      openTimelineRowEditor(tb);
     });
 
     mainEl.addEventListener("change", async (e) => {
@@ -1217,6 +1438,7 @@
     async function loadDetail(id) {
       destroyActiveEditor();
       closeActionRowEditor();
+      closeTimelineRowEditor();
       mainEl.innerHTML = '<p class="empty">Loading…</p>';
       const r = await fetch("/api/postmortems/" + encodeURIComponent(id));
       if (r.status === 404) {
@@ -1249,9 +1471,13 @@
       };
 
       const timeline = Array.isArray(d.timeline) ? d.timeline : [];
+      lastTimeline = timeline;
       let tlHtml = "";
       if (timeline.length) {
-        tlHtml = "<ul class=\"timeline\">" + timeline.map((ev) => {
+        tlHtml = "<ul class=\"timeline\">" + timeline.map((ev, i) => {
+          if (!ev || typeof ev !== "object") {
+            return "<li class=\"timeline-row timeline-row-plain\">" + esc(String(ev)) + "</li>";
+          }
           const keys = Object.keys(ev || {});
           const timeVal = ev.time != null ? ev.time : "";
           let body = "";
@@ -1260,7 +1486,15 @@
             const rest = keys.filter((k) => k !== "time");
             body = rest.map((k) => k + ": " + String(ev[k])).join(" · ");
           }
-          return "<li><div class=\"t\">" + esc(timeVal) + "</div><div class=\"a md\">" + renderMd(body) + "</div></li>";
+          return (
+            '<li class="timeline-row" data-timeline-index="' +
+            i +
+            '"><div class="t">' +
+            esc(timeVal) +
+            '</div><div class="a md timeline-body" tabindex="0" role="button" title="Click to edit timeline event">' +
+            renderMd(body) +
+            "</div></li>"
+          );
         }).join("") + "</ul>";
       } else {
         tlHtml = "<p class=\"empty\">No timeline entries.</p>";
@@ -1306,7 +1540,11 @@
         '<div id="actionNewHost"></div>' +
         actionsHtml +
         "</section>" +
-        "<section><h3>Timeline</h3>" + tlHtml + "</section>" +
+        "<section><div class=\"section-head\"><h3>Timeline</h3>" +
+        '<button type="button" class="btn-edit-section btn-add-action" id="btnAddTimeline" title="Add timeline event">+</button></div>' +
+        '<div id="timelineNewHost"></div>' +
+        tlHtml +
+        "</section>" +
         "</div>";
     }
 

@@ -23,10 +23,12 @@ from .bundle import (
     INCIDENTS_DIR,
     INDEX_SECTION_SLUGS,
     append_action_row,
+    append_timeline_row,
     find_bundle_dir,
     list_incident_summaries,
     load_postmortem,
     patch_action_item,
+    patch_timeline_item,
     patch_index_md_section,
     write_index_md_atomic,
 )
@@ -234,6 +236,67 @@ async def api_patch_action(request: Request):
     return Response(status_code=204)
 
 
+async def api_post_timeline(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        data = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    raw_time = data.get("time")
+    raw_action = data.get("action")
+    if raw_time is None:
+        return JSONResponse({"error": "time is required"}, status_code=400)
+    if raw_action is None:
+        return JSONResponse({"error": "action is required"}, status_code=400)
+    time = str(raw_time).strip()
+    action = str(raw_action).strip()
+    if not time:
+        return JSONResponse({"error": "time is required"}, status_code=400)
+    if not action:
+        return JSONResponse({"error": "action is required"}, status_code=400)
+    try:
+        append_timeline_row(bundle, time=time, action=action)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
+async def api_patch_timeline(request: Request):
+    issue_id = request.path_params["issue_id"]
+    index_raw = request.path_params["timeline_index"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        index = int(index_raw)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "invalid index"}, status_code=400)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        updates = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(updates, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    if not updates:
+        return Response(status_code=204)
+    try:
+        patch_timeline_item(bundle, index, updates)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
 def _safe_asset_file(bundle: Path, asset_path: str) -> Optional[Path]:
     if not asset_path or asset_path.startswith(("/", "\\")):
         return None
@@ -307,6 +370,16 @@ routes = [
     Route(
         "/api/postmortems/{issue_id}/actions/{action_index}",
         endpoint=api_patch_action,
+        methods=["PATCH"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/timeline",
+        endpoint=api_post_timeline,
+        methods=["POST"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/timeline/{timeline_index}",
+        endpoint=api_patch_timeline,
         methods=["PATCH"],
     ),
     Route(

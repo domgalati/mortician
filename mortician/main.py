@@ -2,7 +2,7 @@
 import argparse
 import os
 import sys
-from typing import List
+from typing import List, Optional
 
 from .bundle import delete_bundle_path, list_incident_summaries
 from .state import (
@@ -239,8 +239,13 @@ def main():
     )
     show_out.add_argument(
         "--render",
-        action="store_true",
-        help="Render Markdown in the terminal (install mortician[rich])",
+        nargs="?",
+        const="rich",
+        default=None,
+        choices=("rich", "textual"),
+        metavar="BACKEND",
+        help="Render Markdown in the terminal: rich (Rich; default when --render is used alone) "
+        "or textual (Textual fullscreen). Textual requires: pip install 'mortician[textual]'.",
     )
 
     list_parser = subparsers.add_parser(
@@ -441,17 +446,21 @@ def main():
         if args.action_command == "undo":
             sys.exit(set_action_item_done(issue_id, args.index, done=False))
     elif args.command == "show":
-        want_render = bool(args.render) or (
-            os.environ.get("MORTICIAN_SHOW_RENDER", "").strip().lower()
-            in ("1", "true", "yes")
+        env_render = os.environ.get("MORTICIAN_SHOW_RENDER", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
         )
+        render_backend: Optional[str] = args.render
         if args.plain:
-            want_render = False
+            render_backend = None
+        elif render_backend is None and env_render:
+            render_backend = "rich"
         show_postmortem(
             issue_id=args.issue_id,
             status_filter=args.status,
             date_filter=args.date,
-            render=want_render and bool(args.issue_id),
+            render=render_backend if render_backend and args.issue_id else None,
         )
     elif args.command == "list":
         show_postmortem(

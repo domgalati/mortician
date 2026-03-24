@@ -752,6 +752,36 @@ def patch_action_item(bundle: Path, index: int, updates: Dict[str, Any]) -> None
     _write_actions(bundle, items)
 
 
+TIMELINE_ITEM_PATCH_KEYS = frozenset({"time", "action"})
+
+
+def patch_timeline_item(bundle: Path, index: int, updates: Dict[str, Any]) -> None:
+    """
+    Merge ``updates`` into ``events[index]`` in timeline.yaml and write the file.
+
+    Raises ``ValueError`` for out-of-range index, unknown keys, or non-dict items.
+    No-op if ``updates`` is empty.
+    """
+    if not updates:
+        return
+    bad = [k for k in updates if k not in TIMELINE_ITEM_PATCH_KEYS]
+    if bad:
+        raise ValueError("unknown field: " + ", ".join(repr(k) for k in bad))
+
+    events = _read_timeline(bundle)
+    if index < 0 or index >= len(events):
+        raise ValueError("timeline index out of range")
+    event = events[index]
+    if not isinstance(event, dict):
+        raise ValueError("timeline event is not a mapping")
+
+    for k, v in updates.items():
+        event[k] = _coerce_simple(v)
+
+    events[index] = {str(kk): _coerce_simple(vv) for kk, vv in event.items()}
+    _write_timeline(bundle, events)
+
+
 def append_action_row(
     bundle: Path,
     *,
@@ -772,3 +802,25 @@ def append_action_row(
     }
     items.append({str(k): _coerce_simple(v) for k, v in item.items()})
     _write_actions(bundle, items)
+
+
+def append_timeline_row(
+    bundle: Path,
+    *,
+    time: str,
+    action: str,
+) -> None:
+    """Append one event row to ``timeline.yaml``."""
+    t = (time or "").strip()
+    a = (action or "").strip()
+    if not t:
+        raise ValueError("time is required")
+    if not a:
+        raise ValueError("action is required")
+    events = _read_timeline(bundle)
+    row: Dict[str, Any] = {
+        "time": t,
+        "action": a,
+    }
+    events.append({str(k): _coerce_simple(v) for k, v in row.items()})
+    _write_timeline(bundle, events)

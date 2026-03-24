@@ -38,9 +38,11 @@ From the project root:
 pip install .
 ```
 
-Optional extra:
+Optional extras:
 
-- `pip install 'mortician[rich]'` enables terminal Markdown rendering for `mortician show --render`.
+- `pip install 'mortician[textual]'` enables the Textual fullscreen Markdown viewer for `mortician show <id> --render textual`.
+
+Rich-based terminal Markdown rendering (`mortician show <id> --render` / `--render rich`) and Rich prompts when resolving incidents with missing required fields are included in the default install.
 
 ## Quick Start
 
@@ -68,6 +70,7 @@ Export or render:
 ```bash
 mortician show <incident-id> > postmortem-<incident-id>.md
 mortician show <incident-id> --render
+mortician show <incident-id> --render textual
 ```
 
 ## Command Reference
@@ -114,7 +117,7 @@ mortician list [--status STATUS] [--date YYYY-MM-DD]
 ### `show`
 
 ```text
-mortician show [issue_id] [--status STATUS] [--date YYYY-MM-DD] [--plain | --render]
+mortician show [issue_id] [--status STATUS] [--date YYYY-MM-DD] [--plain | --render [rich|textual]]
 ```
 
 Two modes:
@@ -125,12 +128,13 @@ Two modes:
 Output options:
 
 - default: raw Markdown (good for piping to files/tools)
-- `--render`: render in terminal using Rich (if installed)
+- `--render` or `--render rich`: Rich-based rendering in the terminal (requires `mortician[rich]`)
+- `--render textual`: Textual fullscreen scrollable viewer (requires `mortician[textual]` and an interactive TTY)
 - `--plain`: force raw Markdown output
 
 Environment toggle:
 
-- `MORTICIAN_SHOW_RENDER=1` (also accepts `true`/`yes`) enables rendered output for `mortician show <id>` unless `--plain` is passed.
+- `MORTICIAN_SHOW_RENDER=1` (also accepts `true`/`yes`) is equivalent to `--render rich` for `mortician show <id>` unless `--plain` is passed.
 
 ### `select`
 
@@ -169,7 +173,7 @@ Stateful behavior:
 Editor behavior:
 - If a field flag is provided **without** a value (for example `--duration`), Mortician opens `$EDITOR` prefilled with the current value and saves what you write back to the bundle.
 - If a field flag includes a value (for example `--duration "~1h"`), the field is overwritten immediately.
-- When `--status Resolved` is set, Mortician checks required fields and (if they are empty) prompts you to select which ones to require and fills them in `$EDITOR`.
+- When `--status Resolved` is set, Mortician checks required fields and (if they are empty) walks you through filling them. In a normal interactive terminal (stdin/stdout TTY), it uses Rich prompts (`Confirm` for each empty field, then multi-line entry; finish each field with a line containing only `END`). **Ctrl+C** cancels without saving and leaves status unchanged. Without a TTY, it falls back to yes/no prompts and a single `$EDITOR` session with one section per field.
 
 `--add-entry` (back-compat) appends exactly one timeline object:
 - Pass fragments as `KEY=VALUE`.
