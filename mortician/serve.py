@@ -24,12 +24,16 @@ from .bundle import (
     INDEX_SECTION_SLUGS,
     append_action_row,
     append_timeline_row,
+    bulk_set_action_done,
     find_bundle_dir,
     list_incident_summaries,
     load_postmortem,
     patch_action_item,
     patch_timeline_item,
     patch_index_md_section,
+    reorder_action_item,
+    reorder_timeline_item,
+    sort_timeline_by_time,
     write_index_md_atomic,
 )
 
@@ -236,6 +240,52 @@ async def api_patch_action(request: Request):
     return Response(status_code=204)
 
 
+async def api_bulk_action_state(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        payload = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    if "done" not in payload:
+        return JSONResponse({"error": "done is required"}, status_code=400)
+    updated = bulk_set_action_done(bundle, bool(payload.get("done")))
+    _notify_subscribers()
+    return JSONResponse({"updated": updated})
+
+
+async def api_reorder_action(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        payload = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    try:
+        from_index = int(payload.get("from_index"))
+        to_index = int(payload.get("to_index"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "from_index and to_index are required integers"}, status_code=400)
+    try:
+        reorder_action_item(bundle, from_index, to_index)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
 async def api_post_timeline(request: Request):
     issue_id = request.path_params["issue_id"]
     bundle = find_bundle_dir(issue_id)
@@ -267,6 +317,42 @@ async def api_post_timeline(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
     _notify_subscribers()
     return Response(status_code=204)
+
+
+async def api_reorder_timeline(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        payload = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    try:
+        from_index = int(payload.get("from_index"))
+        to_index = int(payload.get("to_index"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "from_index and to_index are required integers"}, status_code=400)
+    try:
+        reorder_timeline_item(bundle, from_index, to_index)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    _notify_subscribers()
+    return Response(status_code=204)
+
+
+async def api_sort_timeline_by_time(request: Request):
+    issue_id = request.path_params["issue_id"]
+    bundle = find_bundle_dir(issue_id)
+    if bundle is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    updated = sort_timeline_by_time(bundle)
+    _notify_subscribers()
+    return JSONResponse({"updated": updated})
 
 
 async def api_patch_timeline(request: Request):
@@ -368,6 +454,16 @@ routes = [
         methods=["POST"],
     ),
     Route(
+        "/api/postmortems/{issue_id}/actions/bulk-state",
+        endpoint=api_bulk_action_state,
+        methods=["PATCH"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/actions/reorder",
+        endpoint=api_reorder_action,
+        methods=["PATCH"],
+    ),
+    Route(
         "/api/postmortems/{issue_id}/actions/{action_index}",
         endpoint=api_patch_action,
         methods=["PATCH"],
@@ -376,6 +472,16 @@ routes = [
         "/api/postmortems/{issue_id}/timeline",
         endpoint=api_post_timeline,
         methods=["POST"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/timeline/reorder",
+        endpoint=api_reorder_timeline,
+        methods=["PATCH"],
+    ),
+    Route(
+        "/api/postmortems/{issue_id}/timeline/sort-by-time",
+        endpoint=api_sort_timeline_by_time,
+        methods=["PATCH"],
     ),
     Route(
         "/api/postmortems/{issue_id}/timeline/{timeline_index}",

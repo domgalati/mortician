@@ -13,13 +13,15 @@
       --sidebar-bg: rgba(26, 35, 50, 0.6);
       --border: #2d3a4f;
       --text: #e7ecf3;
-      --muted: #8b9cb3;
+      --muted: #9cadc6;
       --accent: #5b9fd4;
       --accent-dim: #3d6f9a;
+      --accent-soft: rgba(91, 159, 212, 0.13);
       --status-open: #e6a23c;
       --status-resolved: #67c23a;
       --pre-bg: #0d1117;
       --code-bg: rgba(45, 58, 79, 0.65);
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.34);
       --font: "Segoe UI", system-ui, sans-serif;
       --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
     }
@@ -32,10 +34,12 @@
       --muted: #5a6b82;
       --accent: #2b6cb0;
       --accent-dim: #4a8fd4;
+      --accent-soft: rgba(43, 108, 176, 0.09);
       --status-open: #b45309;
       --status-resolved: #2f855a;
       --pre-bg: #f0f3f7;
       --code-bg: rgba(197, 208, 223, 0.45);
+      --shadow: 0 8px 22px rgba(22, 34, 55, 0.08);
     }
     * { box-sizing: border-box; }
     body {
@@ -99,6 +103,14 @@
     .btn-header:hover:not(:disabled) {
       border-color: var(--accent-dim);
       color: var(--accent);
+    }
+    .btn-header:focus-visible,
+    .btn-edit-section:focus-visible,
+    .editor-actions button:focus-visible,
+    .export-panel button:focus-visible,
+    .list button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--accent-dim);
     }
     .btn-header:disabled {
       opacity: 0.45;
@@ -172,6 +184,46 @@
     .sidebar-groups {
       display: flex;
       flex-direction: column;
+    }
+    .sidebar-tools {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      padding: 0.7rem 0.75rem 0.55rem;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--sidebar-bg) 82%, var(--surface));
+      backdrop-filter: blur(3px);
+    }
+    .sidebar-search {
+      width: 100%;
+      font: inherit;
+      font-size: 0.83rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.38rem 0.48rem;
+      margin-bottom: 0.5rem;
+    }
+    .sidebar-filters {
+      display: flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .chip {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.74rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    .chip.active {
+      color: var(--text);
+      border-color: var(--accent-dim);
+      background: var(--accent-soft);
     }
     .status-group {
       border-bottom: 1px solid var(--border);
@@ -262,34 +314,57 @@
     }
     .empty, .error {
       color: var(--muted);
-      font-size: 0.95rem;
+      font-size: 0.96rem;
     }
     .error { color: #e85d5d; }
     html[data-theme="light"] .error { color: #c53030; }
+    .detail {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding-bottom: 1rem;
+    }
+    .detail-top {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      margin: -1.25rem -1.5rem 1rem;
+      padding: 1rem 1.5rem 0.9rem;
+      background: color-mix(in srgb, var(--bg) 86%, transparent);
+      backdrop-filter: blur(4px);
+      border-bottom: 1px solid var(--border);
+    }
+    html[data-theme="light"] .detail-top {
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
+    }
     .detail h2 {
       margin: 0 0 0.35rem;
-      font-size: 1.35rem;
+      font-size: 1.5rem;
+      font-weight: 650;
       letter-spacing: -0.02em;
     }
     .detail .badge {
       display: inline-block;
       font-size: 0.75rem;
-      padding: 0.2rem 0.55rem;
-      border-radius: 4px;
+      padding: 0.26rem 0.62rem;
+      border-radius: 999px;
       background: var(--border);
       color: var(--muted);
-      margin-bottom: 1rem;
+      margin-bottom: 0.2rem;
     }
     .detail .badge.resolved { color: var(--status-resolved); }
     .detail .badge.unresolved { color: var(--status-open); }
     section {
       margin-bottom: 1.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 0.95rem 1rem;
     }
     section > h3 {
       margin: 0 0 0.5rem;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      font-size: 0.86rem;
+      letter-spacing: 0.02em;
       color: var(--muted);
       font-weight: 600;
     }
@@ -302,43 +377,32 @@
     }
     .section-head h3 {
       margin: 0;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      font-size: 0.86rem;
+      letter-spacing: 0.02em;
       color: var(--muted);
       font-weight: 600;
     }
     .btn-edit-section {
       font: inherit;
-      font-size: 0.72rem;
-      padding: 0.2rem 0.5rem;
+      font-size: 0.76rem;
+      padding: 0.26rem 0.6rem;
       border-radius: 4px;
       border: 1px solid var(--border);
-      background: transparent;
-      color: var(--muted);
+      background: var(--bg);
+      color: var(--text);
       cursor: pointer;
       flex-shrink: 0;
-    }
-    .section-head .btn-edit-section:not(.btn-add-action) {
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s ease;
-    }
-    .section-head:hover .btn-edit-section:not(.btn-add-action),
-    .section-head:focus-within .btn-edit-section:not(.btn-add-action) {
-      opacity: 1;
-      pointer-events: auto;
+      transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
     }
     .btn-edit-section:hover {
       color: var(--accent);
       border-color: var(--accent-dim);
+      background: var(--accent-soft);
     }
     .btn-add-action {
-      min-width: 1.75rem;
-      text-align: center;
+      min-width: 6rem;
       font-weight: 600;
-      font-size: 0.95rem;
-      line-height: 1;
+      line-height: 1.2;
     }
     .md-editable {
       border-radius: 6px;
@@ -380,9 +444,9 @@
     }
     section p, section li {
       margin: 0;
-      line-height: 1.55;
+      line-height: 1.62;
       color: var(--text);
-      font-size: 0.92rem;
+      font-size: 0.95rem;
     }
     .actions-list {
       list-style: none;
@@ -396,6 +460,15 @@
       padding: 0.55rem 0;
       border-bottom: 1px solid var(--border);
       font-size: 0.92rem;
+    }
+    .actions-list .action-row.dragging,
+    .timeline .timeline-row.dragging {
+      opacity: 0.45;
+    }
+    .actions-list .action-row.drop-target,
+    .timeline .timeline-row.drop-target {
+      box-shadow: inset 0 0 0 2px var(--accent-dim);
+      border-radius: 6px;
     }
     .actions-list .action-row:last-child { border-bottom: none; }
     .action-check {
@@ -495,6 +568,24 @@
       border: 2px solid var(--bg);
     }
     .timeline .t { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); }
+    .timeline-day {
+      margin: 0.75rem 0 0.3rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .timeline-time-line {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .timeline-rel {
+      font-size: 0.73rem;
+      color: var(--muted);
+    }
     .timeline .a { margin-top: 0.15rem; }
     .timeline .a.md { font-size: 0.9rem; }
     .timeline .timeline-body {
@@ -579,9 +670,8 @@
     }
     .md-subtitle {
       margin: 0.85rem 0 0.35rem;
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      font-size: 0.82rem;
+      letter-spacing: 0.03em;
       color: var(--muted);
       font-weight: 600;
     }
@@ -603,6 +693,61 @@
     .EasyMDEContainer .editor-preview-side {
       background: var(--surface);
       border-color: var(--border);
+    }
+    .loading-skeleton {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+    }
+    .loading-line {
+      height: 0.85rem;
+      border-radius: 999px;
+      margin: 0.6rem 0;
+      background: linear-gradient(
+        90deg,
+        rgba(140, 153, 171, 0.12) 0%,
+        rgba(140, 153, 171, 0.28) 50%,
+        rgba(140, 153, 171, 0.12) 100%
+      );
+      background-size: 240% 100%;
+      animation: shimmer 1.25s ease-in-out infinite;
+    }
+    .loading-line.lg { height: 1.2rem; width: 62%; }
+    .loading-line.md { width: 84%; }
+    .loading-line.sm { width: 54%; }
+    @keyframes shimmer {
+      0% { background-position: 220% 0; }
+      100% { background-position: -40% 0; }
+    }
+    .toast-wrap {
+      position: fixed;
+      right: 1rem;
+      bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      z-index: 50;
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      box-shadow: var(--shadow);
+      border-radius: 8px;
+      padding: 0.5rem 0.7rem;
+      min-width: 180px;
+      max-width: 320px;
+      font-size: 0.86rem;
+    }
+    .toast.success { border-left-color: var(--status-resolved); }
+    .toast.error { border-left-color: #e85d5d; color: var(--text); }
+    @media (prefers-reduced-motion: reduce) {
+      .loading-line { animation: none; }
+      * { transition: none !important; }
     }
   </style>
 </head>
@@ -629,10 +774,20 @@
   </header>
   <div class="layout">
     <aside>
+      <div class="sidebar-tools">
+        <input type="search" id="sidebarSearch" class="sidebar-search" placeholder="Filter incidents by title or id" />
+        <div class="sidebar-filters">
+          <button type="button" class="chip active" data-status-filter="all">All</button>
+          <button type="button" class="chip" data-status-filter="unresolved">Unresolved</button>
+          <button type="button" class="chip" data-status-filter="temporary">Temporary</button>
+          <button type="button" class="chip" data-status-filter="resolved">Resolved</button>
+        </div>
+      </div>
       <div class="sidebar-groups" id="incidentList"></div>
     </aside>
     <main id="main"></main>
   </div>
+  <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js" crossorigin="anonymous"></script>
@@ -645,6 +800,8 @@
     const exportSummary = document.getElementById("exportSummary");
     const exportZipBtn = document.getElementById("exportZip");
     const themeToggle = document.getElementById("themeToggle");
+    const toastWrap = document.getElementById("toastWrap");
+    const sidebarSearch = document.getElementById("sidebarSearch");
 
     let selectedId = null;
     let summaries = [];
@@ -660,6 +817,9 @@
     let actionEditSnapshot = null;
     let timelineEditBody = null;
     let timelineEditSnapshot = null;
+    let ownerSuggestions = [];
+    let sidebarStatusFilter = "all";
+    let dragActionIndex = null;
 
     const SIDEBAR_COLLAPSED_KEY = "mortician.sidebarCollapsed";
     const THEME_KEY = "mortician.theme";
@@ -742,12 +902,35 @@
       if (el.tagName !== "DETAILS" || !el.dataset.bucket) return;
       persistCollapsedBucket(el.dataset.bucket, !el.open);
     });
+    if (sidebarSearch) {
+      sidebarSearch.addEventListener("input", () => renderList());
+    }
+    document.addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip[data-status-filter]");
+      if (!chip) return;
+      sidebarStatusFilter = chip.dataset.statusFilter || "all";
+      document.querySelectorAll(".chip[data-status-filter]").forEach((el) => {
+        el.classList.toggle("active", el === chip);
+      });
+      renderList();
+    });
 
     function statusClass(status) {
       const s = (status || "").toLowerCase();
       if (s.includes("resolved")) return "resolved";
       if (s.includes("unresolved") || s.includes("temporary")) return "unresolved";
       return "";
+    }
+
+    function showToast(msg, kind = "success") {
+      if (!toastWrap) return;
+      const t = document.createElement("div");
+      t.className = "toast " + (kind === "error" ? "error" : "success");
+      t.textContent = String(msg || "");
+      toastWrap.appendChild(t);
+      window.setTimeout(() => {
+        if (t.parentNode) t.parentNode.removeChild(t);
+      }, 2200);
     }
 
     function esc(s) {
@@ -777,10 +960,46 @@
       const duration = String(imp.duration_of_outage || "").trim();
       const business = String(imp.business_impact || "").trim();
       let impactMarkdown = "";
-      if (affected) impactMarkdown += "**Affected Services:** " + affected + "\n\n";
+      if (affected) impactMarkdown += "### Affected Services\n" + affected + "\n\n";
       if (duration) impactMarkdown += "### Duration of Outage\n" + duration + "\n\n";
       if (business) impactMarkdown += "### Business Impact\n" + business + "\n\n";
       return impactMarkdown;
+    }
+
+    function parseImpactSubsections(md) {
+      const text = String(md || "");
+      const lines = text.split("\n");
+      const out = { affected: "", duration: "", business: "" };
+      let key = null;
+      const flush = [];
+      function commit() {
+        if (!key) return;
+        out[key] = flush.join("\n").trim();
+      }
+      for (const line of lines) {
+        const t = line.trim();
+        if (t === "### Affected Services") {
+          commit();
+          key = "affected";
+          flush.length = 0;
+          continue;
+        }
+        if (t === "### Duration of Outage") {
+          commit();
+          key = "duration";
+          flush.length = 0;
+          continue;
+        }
+        if (t === "### Business Impact") {
+          commit();
+          key = "business";
+          flush.length = 0;
+          continue;
+        }
+        if (key) flush.push(line);
+      }
+      commit();
+      return out;
     }
 
     function buildActionsHtml(actions) {
@@ -814,7 +1033,7 @@
           ? '<div class="act-meta">' + esc(metaBits.join(" · ")) + "</div>"
           : "";
         return (
-          '<li class="action-row" data-action-index="' +
+          '<li class="action-row" draggable="true" data-action-index="' +
           i +
           '">' +
           '<label class="action-check" title="Toggle done (saved to disk)">' +
@@ -832,6 +1051,21 @@
         );
       });
       return '<ul class="actions-list">' + items.join("") + "</ul>";
+    }
+
+    function collectOwnerSuggestions(detail, actions) {
+      const opts = new Set();
+      if (detail && detail.incident_owner) opts.add(String(detail.incident_owner).trim());
+      const participants = detail && detail.incident_participants;
+      if (Array.isArray(participants)) {
+        participants.forEach((p) => opts.add(String(p || "").trim()));
+      } else if (typeof participants === "string") {
+        participants.split(",").forEach((p) => opts.add(String(p || "").trim()));
+      }
+      (actions || []).forEach((a) => {
+        if (a && typeof a === "object" && a.owner) opts.add(String(a.owner).trim());
+      });
+      return [...opts].filter(Boolean).sort((a, b) => a.localeCompare(b));
     }
 
     function onActionEditKeydown(ev) {
@@ -887,11 +1121,14 @@
             if (j.error) msg = j.error;
           } catch (_) {}
           alert(msg);
+          showToast(msg, "error");
           return false;
         }
+        showToast("Action updated");
         return true;
       } catch (_) {
         alert("Network error");
+        showToast("Network error", "error");
         return false;
       }
     }
@@ -914,11 +1151,14 @@
             if (j.error) msg = j.error;
           } catch (_) {}
           alert(msg);
+          showToast(msg, "error");
           return false;
         }
+        showToast("Action added");
         return true;
       } catch (_) {
         alert("Network error");
+        showToast("Network error", "error");
         return false;
       }
     }
@@ -941,11 +1181,14 @@
             if (j.error) msg = j.error;
           } catch (_) {}
           alert(msg);
+          showToast(msg, "error");
           return false;
         }
+        showToast("Timeline event added");
         return true;
       } catch (_) {
         alert("Network error");
+        showToast("Network error", "error");
         return false;
       }
     }
@@ -971,11 +1214,55 @@
             if (j.error) msg = j.error;
           } catch (_) {}
           alert(msg);
+          showToast(msg, "error");
           return false;
         }
+        showToast("Timeline event updated");
         return true;
       } catch (_) {
         alert("Network error");
+        showToast("Network error", "error");
+        return false;
+      }
+    }
+
+    async function reorderActions(fromIndex, toIndex) {
+      if (!selectedId) return false;
+      try {
+        const r = await fetch("/api/postmortems/" + encodeURIComponent(selectedId) + "/actions/reorder", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from_index: fromIndex, to_index: toIndex }),
+        });
+        return r.ok;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function bulkSetActions(done) {
+      if (!selectedId) return false;
+      try {
+        const r = await fetch("/api/postmortems/" + encodeURIComponent(selectedId) + "/actions/bulk-state", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ done: Boolean(done) }),
+        });
+        return r.ok;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function sortTimelineByTime() {
+      if (!selectedId) return false;
+      try {
+        const r = await fetch("/api/postmortems/" + encodeURIComponent(selectedId) + "/timeline/sort-by-time", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+        });
+        return r.ok;
+      } catch (_) {
         return false;
       }
     }
@@ -989,8 +1276,8 @@
       host.innerHTML =
         '<form class="action-edit-form">' +
         '<label class="act-field"><span>Task</span><textarea name="task" rows="3"></textarea></label>' +
-        '<label class="act-field"><span>Owner</span><input type="text" name="owner" autocomplete="off" /></label>' +
-        '<label class="act-field"><span>Due</span><input type="text" name="due" autocomplete="off" /></label>' +
+        '<label class="act-field"><span>Owner</span><input type="text" name="owner" list="ownerSuggestionsList" autocomplete="off" /></label>' +
+        '<label class="act-field"><span>Due</span><input type="date" name="due" autocomplete="off" /></label>' +
         '<div class="editor-actions">' +
         '<button type="submit" class="btn-save">Save</button>' +
         '<button type="button" class="btn-cancel">Cancel</button>' +
@@ -1080,8 +1367,8 @@
       bodyEl.innerHTML =
         '<form class="action-edit-form">' +
         '<label class="act-field"><span>Task</span><textarea name="task" rows="3"></textarea></label>' +
-        '<label class="act-field"><span>Owner</span><input type="text" name="owner" autocomplete="off" /></label>' +
-        '<label class="act-field"><span>Due</span><input type="text" name="due" autocomplete="off" /></label>' +
+        '<label class="act-field"><span>Owner</span><input type="text" name="owner" list="ownerSuggestionsList" autocomplete="off" /></label>' +
+        '<label class="act-field"><span>Due</span><input type="date" name="due" autocomplete="off" /></label>' +
         '<div class="editor-actions">' +
         '<button type="submit" class="btn-save">Save</button>' +
         '<button type="button" class="btn-cancel">Cancel</button>' +
@@ -1224,8 +1511,10 @@
           if (j.error) msg = j.error;
         } catch (_) {}
         alert(msg);
+        showToast(msg, "error");
         return false;
       }
+      showToast("Section saved");
       return true;
     }
 
@@ -1289,6 +1578,31 @@
         openNewTimelineEditor();
         return;
       }
+      if (e.target.id === "btnMarkAllDone") {
+        e.preventDefault();
+        bulkSetActions(true).then((ok) => {
+          if (!ok) return showToast("Could not update actions", "error");
+          loadDetail(selectedId, { preserveScroll: true });
+        });
+        return;
+      }
+      if (e.target.id === "btnMarkAllUndone") {
+        e.preventDefault();
+        bulkSetActions(false).then((ok) => {
+          if (!ok) return showToast("Could not update actions", "error");
+          loadDetail(selectedId, { preserveScroll: true });
+        });
+        return;
+      }
+      if (e.target.id === "btnSortTimeline") {
+        e.preventDefault();
+        sortTimelineByTime().then((ok) => {
+          if (!ok) return showToast("Could not sort timeline", "error");
+          showToast("Timeline sorted by timestamp");
+          loadDetail(selectedId, { preserveScroll: true });
+        });
+        return;
+      }
       const tb = e.target.closest(".timeline-body");
       if (tb && !tb.querySelector(".action-edit-form")) {
         e.preventDefault();
@@ -1346,6 +1660,37 @@
       if (!ok) t.checked = prev;
     });
 
+    mainEl.addEventListener("dragstart", (e) => {
+      const row = e.target.closest(".action-row[data-action-index]");
+      if (!row) return;
+      dragActionIndex = parseInt(row.dataset.actionIndex, 10);
+      row.classList.add("dragging");
+    });
+    mainEl.addEventListener("dragend", (e) => {
+      const row = e.target.closest(".action-row, .timeline-row");
+      if (row) row.classList.remove("dragging");
+      mainEl.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
+      dragActionIndex = null;
+    });
+    mainEl.addEventListener("dragover", (e) => {
+      const target = e.target.closest(".action-row[data-action-index]");
+      if (!target) return;
+      e.preventDefault();
+      mainEl.querySelectorAll(".drop-target").forEach((el) => el.classList.remove("drop-target"));
+      target.classList.add("drop-target");
+    });
+    mainEl.addEventListener("drop", async (e) => {
+      const target = e.target.closest(".action-row[data-action-index]");
+      if (!target) return;
+      e.preventDefault();
+      const actionIdx = parseInt(target.dataset.actionIndex, 10);
+      if (dragActionIndex != null && actionIdx != null && dragActionIndex !== actionIdx) {
+        const ok = await reorderActions(dragActionIndex, actionIdx);
+        if (!ok) showToast("Could not reorder actions", "error");
+        else await loadDetail(selectedId, { preserveScroll: true });
+      }
+    });
+
     function renderList() {
       listEl.innerHTML = "";
       setExportEnabled(Boolean(selectedId));
@@ -1359,11 +1704,17 @@
       }
 
       const collapsed = getCollapsedBuckets();
+      const q = sidebarSearch ? String(sidebarSearch.value || "").trim().toLowerCase() : "";
       const byBucket = new Map();
       for (const b of STATUS_BUCKETS) byBucket.set(b.key, []);
 
       for (const row of summaries) {
         const k = statusBucket(row.status);
+        if (sidebarStatusFilter !== "all" && k !== sidebarStatusFilter) continue;
+        if (q) {
+          const hay = (String(row.title || "") + " " + String(row.id || "")).toLowerCase();
+          if (!hay.includes(q)) continue;
+        }
         if (!byBucket.has(k)) byBucket.set(k, []);
         byBucket.get(k).push(row);
       }
@@ -1407,9 +1758,11 @@
             def.key === "other" && row.status
               ? row.status + " · " + (row.date || "—")
               : row.date || "—";
+          const unresolved = Number(row.unresolved_actions || 0);
+          const unresolvedTxt = unresolved > 0 ? " · " + unresolved + " open actions" : "";
           bbtn.innerHTML =
             esc(row.title || row.id) +
-            '<span class="meta">' + esc(metaLine) + "</span>";
+            '<span class="meta">' + esc(metaLine + unresolvedTxt) + "</span>";
           bbtn.addEventListener("click", () => {
             selectedId = row.id;
             renderList();
@@ -1435,11 +1788,19 @@
       }
     }
 
-    async function loadDetail(id) {
+    async function loadDetail(id, opts = {}) {
+      const preserveScroll = Boolean(opts && opts.preserveScroll);
+      const priorScrollTop = preserveScroll ? mainEl.scrollTop : 0;
       destroyActiveEditor();
       closeActionRowEditor();
       closeTimelineRowEditor();
-      mainEl.innerHTML = '<p class="empty">Loading…</p>';
+      mainEl.innerHTML =
+        '<div class="loading-skeleton" aria-hidden="true">' +
+        '<div class="loading-line lg"></div>' +
+        '<div class="loading-line md"></div>' +
+        '<div class="loading-line"></div>' +
+        '<div class="loading-line sm"></div>' +
+        "</div>";
       const r = await fetch("/api/postmortems/" + encodeURIComponent(id));
       if (r.status === 404) {
         mainEl.innerHTML = '<p class="error">Not found.</p>';
@@ -1461,10 +1822,14 @@
 
       const imp = d.impact_and_severity || {};
       const res = d.resolution || {};
+      const parsedImpact = parseImpactSubsections(impactMarkdownForEdit(imp));
 
       lastDetailRaw = {
         summary: d.incident_summary || "",
         impact: impactMarkdownForEdit(imp),
+        impact_affected: parsedImpact.affected || "",
+        impact_duration: parsedImpact.duration || "",
+        impact_business: parsedImpact.business || "",
         root_cause: d.root_cause || "",
         resolution_temporary: res.temporary_fix || "",
         resolution_permanent: res.permanent_fix || "",
@@ -1472,60 +1837,108 @@
 
       const timeline = Array.isArray(d.timeline) ? d.timeline : [];
       lastTimeline = timeline;
+      function parseTimelineDate(text) {
+        const raw = String(text || "").trim();
+        if (!raw) return null;
+        let dt = new Date(raw);
+        if (!Number.isNaN(dt.getTime())) return dt;
+        dt = new Date(raw.replace(" UTC", "Z"));
+        if (!Number.isNaN(dt.getTime())) return dt;
+        return null;
+      }
+      function relLabel(dt) {
+        if (!dt) return "";
+        const mins = Math.round((Date.now() - dt.getTime()) / 60000);
+        const absMins = Math.abs(mins);
+        if (absMins < 60) return mins >= 0 ? absMins + "m ago" : "in " + absMins + "m";
+        const hrs = Math.round(absMins / 60);
+        if (hrs < 24) return mins >= 0 ? hrs + "h ago" : "in " + hrs + "h";
+        const days = Math.round(hrs / 24);
+        return mins >= 0 ? days + "d ago" : "in " + days + "d";
+      }
       let tlHtml = "";
       if (timeline.length) {
-        tlHtml = "<ul class=\"timeline\">" + timeline.map((ev, i) => {
+        let currentDay = "";
+        const chunks = [];
+        for (let i = 0; i < timeline.length; i += 1) {
+          const ev = timeline[i];
           if (!ev || typeof ev !== "object") {
-            return "<li class=\"timeline-row timeline-row-plain\">" + esc(String(ev)) + "</li>";
+            chunks.push("<li class=\"timeline-row timeline-row-plain\">" + esc(String(ev)) + "</li>");
+            continue;
           }
           const keys = Object.keys(ev || {});
           const timeVal = ev.time != null ? ev.time : "";
+          const dt = parseTimelineDate(timeVal);
+          const dayKey = dt
+            ? dt.toLocaleDateString(undefined, {
+              weekday: "short",
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })
+            : "Unparsed time";
+          if (dayKey !== currentDay) {
+            currentDay = dayKey;
+            chunks.push('<li class="timeline-day">' + esc(dayKey) + "</li>");
+          }
           let body = "";
           if (ev.action != null) body = String(ev.action);
           else {
             const rest = keys.filter((k) => k !== "time");
             body = rest.map((k) => k + ": " + String(ev[k])).join(" · ");
           }
-          return (
+          chunks.push(
             '<li class="timeline-row" data-timeline-index="' +
             i +
-            '"><div class="t">' +
-            esc(timeVal) +
-            '</div><div class="a md timeline-body" tabindex="0" role="button" title="Click to edit timeline event">' +
+            '"><div class="timeline-time-line"><div class="t">' +
+            esc(timeVal || "—") +
+            '</div><span class="timeline-rel">' +
+            esc(relLabel(dt)) +
+            '</span></div><div class="a md timeline-body" tabindex="0" role="button" title="Click to edit timeline event">' +
             renderMd(body) +
             "</div></li>"
           );
-        }).join("") + "</ul>";
+        }
+        tlHtml = '<ul class="timeline">' + chunks.join("") + "</ul>";
       } else {
-        tlHtml = "<p class=\"empty\">No timeline entries.</p>";
-      }
-
-      let impactBlock = "";
-      if (imp.markdown && String(imp.markdown).trim()) {
-        impactBlock = renderMd(imp.markdown);
-      } else {
-        impactBlock = renderMd(lastDetailRaw.impact);
+        tlHtml = "<p class=\"empty\">No timeline entries yet - add the first event.</p>";
       }
 
       const summaryMd = renderMd(lastDetailRaw.summary);
+      const impactAffectedMd = renderMd(lastDetailRaw.impact_affected);
+      const impactDurationMd = renderMd(lastDetailRaw.impact_duration);
+      const impactBusinessMd = renderMd(lastDetailRaw.impact_business);
       const rootMd = renderMd(lastDetailRaw.root_cause);
       const tempMd = renderMd(lastDetailRaw.resolution_temporary);
       const permMd = renderMd(lastDetailRaw.resolution_permanent);
 
       const actions = Array.isArray(d.actions_and_follow_up) ? d.actions_and_follow_up : [];
       lastActions = actions;
+      ownerSuggestions = collectOwnerSuggestions(d, actions);
       const actionsHtml = buildActionsHtml(actions);
 
       mainEl.innerHTML =
         '<div class="detail">' +
+        '<div class="detail-top">' +
         "<h2>" + esc(title) + "</h2>" +
         '<span class="' + esc(badgeClass) + '">' + esc(st || "—") + "</span>" +
+        "</div>" +
         "<section><h3>Overview</h3>" +
         "<p>Date: " + esc(ov.date) + " · Time: " + esc(ov.time) + "</p></section>" +
         "<section><h3>Owner</h3><p>" + esc(d.incident_owner) + "</p></section>" +
         "<section><h3>Participants</h3><p>" + esc(partStr) + "</p></section>" +
         sectionWithEdit("Summary", "summary", summaryMd || "<p class=\"empty\">—</p>") +
-        sectionWithEdit("Impact", "impact", impactBlock || "<p class=\"empty\">—</p>") +
+        "<section><h3>Impact</h3>" +
+        '<div class="section-head"><span class="md-subtitle">Affected services</span>' +
+        '<button type="button" class="btn-edit-section" data-section="impact_affected">Edit</button></div>' +
+        editableBlock("impact_affected", impactAffectedMd || "<p class=\"empty\">—</p>") +
+        '<div class="section-head" style="margin-top:0.75rem"><span class="md-subtitle">Duration</span>' +
+        '<button type="button" class="btn-edit-section" data-section="impact_duration">Edit</button></div>' +
+        editableBlock("impact_duration", impactDurationMd || "<p class=\"empty\">—</p>") +
+        '<div class="section-head" style="margin-top:0.75rem"><span class="md-subtitle">Business impact</span>' +
+        '<button type="button" class="btn-edit-section" data-section="impact_business">Edit</button></div>' +
+        editableBlock("impact_business", impactBusinessMd || "<p class=\"empty\">—</p>") +
+        "</section>" +
         sectionWithEdit("Root cause", "root_cause", rootMd || "<p class=\"empty\">—</p>") +
         "<section><h3>Resolution</h3>" +
         '<div class="section-head"><span class="md-subtitle">Temporary</span>' +
@@ -1536,16 +1949,29 @@
         editableBlock("resolution_permanent", permMd || "<p class=\"empty\">—</p>") +
         "</section>" +
         "<section><div class=\"section-head\"><h3>Actions / follow-up</h3>" +
-        '<button type="button" class="btn-edit-section btn-add-action" id="btnAddAction" title="Add follow-up item">+</button></div>' +
+        '<div style="display:flex; gap:0.35rem; flex-wrap:wrap">' +
+        '<button type="button" class="btn-edit-section" id="btnMarkAllDone" title="Mark all actions done">Mark all done</button>' +
+        '<button type="button" class="btn-edit-section" id="btnMarkAllUndone" title="Mark all actions undone">Mark all undone</button>' +
+        '<button type="button" class="btn-edit-section btn-add-action" id="btnAddAction" title="Add follow-up item">Add action</button>' +
+        "</div></div>" +
         '<div id="actionNewHost"></div>' +
+        '<datalist id="ownerSuggestionsList">' +
+        ownerSuggestions.map((o) => '<option value="' + esc(o) + '"></option>').join("") +
+        "</datalist>" +
         actionsHtml +
         "</section>" +
         "<section><div class=\"section-head\"><h3>Timeline</h3>" +
-        '<button type="button" class="btn-edit-section btn-add-action" id="btnAddTimeline" title="Add timeline event">+</button></div>' +
+        '<div style="display:flex; gap:0.35rem; flex-wrap:wrap">' +
+        '<button type="button" class="btn-edit-section" id="btnSortTimeline" title="Sort timeline by parsed timestamps">Sort by time</button>' +
+        '<button type="button" class="btn-edit-section btn-add-action" id="btnAddTimeline" title="Add timeline event">Add event</button>' +
+        "</div></div>" +
         '<div id="timelineNewHost"></div>' +
         tlHtml +
         "</section>" +
         "</div>";
+      if (preserveScroll) {
+        mainEl.scrollTop = priorScrollTop;
+      }
     }
 
     function connectSSE() {

@@ -201,19 +201,21 @@ def list_bundle_dirs() -> List[Path]:
 
 
 def list_incident_summaries() -> List[Dict[str, Any]]:
-    """Lightweight rows for CLI list / dashboard (id, title, status, date)."""
+    """Lightweight rows for CLI list / dashboard."""
     rows: List[Dict[str, Any]] = []
     for bundle in list_bundle_dirs():
         meta = _read_meta(bundle)
         iid = meta.get("id")
         if not iid:
             continue
+        unresolved_actions = _count_unresolved_actions(bundle)
         rows.append(
             {
                 "id": iid,
                 "title": meta.get("title", ""),
                 "status": meta.get("status", ""),
                 "date": meta.get("date", ""),
+                "unresolved_actions": unresolved_actions,
             }
         )
     return rows
@@ -670,6 +672,9 @@ INDEX_SECTION_SLUGS = frozenset(
     {
         "summary",
         "impact",
+        "impact_affected",
+        "impact_duration",
+        "impact_business",
         "root_cause",
         "resolution_temporary",
         "resolution_permanent",
@@ -696,6 +701,18 @@ def patch_index_md_section(bundle: Path, section: str, body: str) -> None:
         parsed["incident_summary"] = body_str
     elif section == "impact":
         parsed["impact_markdown"] = body_str
+    elif section == "impact_affected":
+        im = _parse_impact_subsections(parsed.get("impact_markdown") or "")
+        im["affected_services"] = body_str
+        parsed["impact_markdown"] = _build_impact_markdown(im)
+    elif section == "impact_duration":
+        im = _parse_impact_subsections(parsed.get("impact_markdown") or "")
+        im["duration_of_outage"] = body_str
+        parsed["impact_markdown"] = _build_impact_markdown(im)
+    elif section == "impact_business":
+        im = _parse_impact_subsections(parsed.get("impact_markdown") or "")
+        im["business_impact"] = body_str
+        parsed["impact_markdown"] = _build_impact_markdown(im)
     elif section == "root_cause":
         parsed["root_cause"] = body_str
     elif section == "resolution_temporary":
@@ -716,6 +733,44 @@ def patch_index_md_section(bundle: Path, section: str, body: str) -> None:
         use_impact_placeholder=False,
     )
     write_index_md_atomic(bundle, new_md)
+
+
+def _parse_markdown_subsection(body: str, subtitle: str) -> str:
+    if not body.strip():
+        return ""
+    lines = body.splitlines()
+    target = f"### {subtitle}"
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == target:
+            start = i + 1
+            break
+    if start is None:
+        return ""
+    out: List[str] = []
+    for line in lines[start:]:
+        if line.startswith("### "):
+            break
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def _parse_impact_subsections(impact_md: str) -> Dict[str, str]:
+    return {
+        "affected_services": _parse_markdown_subsection(impact_md, SUB_IMPACT_AFFECTED),
+        "duration_of_outage": _parse_markdown_subsection(impact_md, SUB_IMPACT_DURATION),
+        "business_impact": _parse_markdown_subsection(impact_md, SUB_IMPACT_BUSINESS),
+    }
+
+
+def _build_impact_markdown(impact_fields: Dict[str, str]) -> str:
+    return "\n\n".join(
+        [
+            _md_h3_block(SUB_IMPACT_AFFECTED, impact_fields.get("affected_services", "")),
+            _md_h3_block(SUB_IMPACT_DURATION, impact_fields.get("duration_of_outage", "")),
+            _md_h3_block(SUB_IMPACT_BUSINESS, impact_fields.get("business_impact", "")),
+        ]
+    )
 
 
 # JSON merge keys for PATCH .../actions/{index} (dashboard API).
@@ -752,6 +807,38 @@ def patch_action_item(bundle: Path, index: int, updates: Dict[str, Any]) -> None
     _write_actions(bundle, items)
 
 
+def bulk_set_action_done(bundle: Path, done: bool) -> int:
+    """Set done/completed state for all action rows. Returns updated count."""
+    items = _read_actions(bundle)
+    if not items:
+        return 0
+    updated = 0
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        item["done"] = bool(done)
+        if "completed" in item:
+            item["completed"] = bool(done)
+        items[i] = {str(kk): _coerce_simple(vv) for kk, vv in item.items()}
+        updated += 1
+    _write_actions(bundle, items)
+    return updated
+
+
+def reorder_action_item(bundle: Path, from_index: int, to_index: int) -> None:
+    """Move one action row within actions.yaml."""
+    items = _read_actions(bundle)
+    if from_index < 0 or from_index >= len(items):
+        raise ValueError("action index out of range")
+    if to_index < 0 or to_index >= len(items):
+        raise ValueError("target index out of range")
+    if from_index == to_index:
+        return
+    row = items.pop(from_index)
+    items.insert(to_index, row)
+    _write_actions(bundle, items)
+
+
 TIMELINE_ITEM_PATCH_KEYS = frozenset({"time", "action"})
 
 
@@ -780,6 +867,78 @@ def patch_timeline_item(bundle: Path, index: int, updates: Dict[str, Any]) -> No
 
     events[index] = {str(kk): _coerce_simple(vv) for kk, vv in event.items()}
     _write_timeline(bundle, events)
+
+
+def reorder_timeline_item(bundle: Path, from_index: int, to_index: int) -> None:
+    """Move one timeline row within timeline.yaml."""
+    events = _read_timeline(bundle)
+    if from_index < 0 or from_index >= len(events):
+        raise ValueError("timeline index out of range")
+    if to_index < 0 or to_index >= len(events):
+        raise ValueError("target index out of range")
+    if from_index == to_index:
+        return
+    row = events.pop(from_index)
+    events.insert(to_index, row)
+    _write_timeline(bundle, events)
+
+
+def sort_timeline_by_time(bundle: Path) -> int:
+    """
+    Sort timeline events by parsed timestamp, preserving relative order for ties.
+
+    Unparseable timestamps are placed after parseable entries and preserve
+    their original relative order.
+    """
+    events = _read_timeline(bundle)
+    if len(events) < 2:
+        return 0
+
+    def _parse_event_time(value: Any) -> Optional[datetime]:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M UTC", "%Y-%m-%d %H:%M:%S UTC"):
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        return None
+
+    indexed = list(enumerate(events))
+    sorted_rows = sorted(
+        indexed,
+        key=lambda pair: (
+            0 if _parse_event_time(pair[1].get("time")) is not None else 1,
+            _parse_event_time(pair[1].get("time")) or datetime.max.replace(tzinfo=timezone.utc),
+            pair[0],
+        ),
+    )
+    new_events = [row for _, row in sorted_rows]
+    if new_events == events:
+        return 0
+    _write_timeline(bundle, new_events)
+    return len(new_events)
+
+
+def _count_unresolved_actions(bundle: Path) -> int:
+    items = _read_actions(bundle)
+    total = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        done = item.get("done")
+        completed = item.get("completed")
+        if not (done is True or completed is True):
+            total += 1
+    return total
 
 
 def append_action_row(
