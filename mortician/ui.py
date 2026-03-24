@@ -3,6 +3,7 @@ from typing import Literal, Optional, Union
 
 from .bundle import list_incident_summaries
 from .formatter import postmortem_to_markdown
+from .statuses import normalize_status
 from .utils import load_postmortem
 
 RenderBackend = Literal["rich", "textual"]
@@ -75,9 +76,10 @@ def show_postmortem(
             return
 
         if status_filter:
+            wanted = normalize_status(status_filter) or status_filter.strip()
             all_postmortems = [
                 pm for pm in all_postmortems
-                if pm["status"].lower() == status_filter.lower()
+                if (normalize_status(pm["status"]) or pm["status"]).lower() == wanted.lower()
             ]
             if not all_postmortems:
                 print(f"No postmortems found with status '{status_filter}'.")

@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from .templates import DEFAULT_POSTMORTEM
+from .statuses import DEFAULT_STATUS
 
 def _resolve_incidents_dir() -> Path:
     """
@@ -282,6 +283,22 @@ def _read_actions(bundle: Path) -> List[Dict[str, Any]]:
     return out
 
 
+def _list_assets(bundle: Path) -> List[str]:
+    assets_dir = bundle / ASSETS_DIRNAME
+    if not assets_dir.is_dir():
+        return []
+    out: List[str] = []
+    for path in sorted(assets_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            rel = path.relative_to(assets_dir)
+        except ValueError:
+            continue
+        out.append(rel.as_posix())
+    return out
+
+
 def _write_actions(bundle: Path, items: List[Dict[str, Any]]) -> None:
     (bundle / ACTIONS_FILENAME).write_text(
         _yaml_dump({"items": items}),
@@ -491,6 +508,7 @@ def load_postmortem(issue_id: str) -> Optional[Dict[str, Any]]:
 
     timeline = _read_timeline(bundle)
     actions = _read_actions(bundle)
+    assets = _list_assets(bundle)
 
     participants = meta.get("participants", "")
     if isinstance(participants, list):
@@ -521,6 +539,7 @@ def load_postmortem(issue_id: str) -> Optional[Dict[str, Any]]:
     }
     data["actions_and_follow_up"] = actions
     data["timeline"] = timeline
+    data["assets"] = assets
     return data
 
 
@@ -602,7 +621,7 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
         data["overview"]["date"] = str(datetime.now().date())
     if not str(data["overview"].get("time") or "").strip():
         data["overview"]["time"] = str(datetime.now().time())
-    data["overview"].setdefault("status", "Unresolved")
+    data["overview"].setdefault("status", DEFAULT_STATUS)
     data["overview"].setdefault("severity", "")
 
     bundle.mkdir(parents=True, exist_ok=True)
@@ -611,7 +630,7 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
     meta = {
         "id": issue_id,
         "title": title,
-        "status": data["overview"].get("status") or "Unresolved",
+        "status": data["overview"].get("status") or DEFAULT_STATUS,
         "severity": data["overview"].get("severity") or "",
         "owner": data.get("incident_owner") or "",
         "created_at": datetime.now().isoformat(timespec="seconds"),

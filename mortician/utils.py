@@ -22,6 +22,13 @@ from .bundle import (
     write_index_md_atomic,
 )
 from .templates import DEFAULT_POSTMORTEM
+from .statuses import (
+    DEFAULT_STATUS,
+    RESOLVED_STATUS,
+    TEMPORARY_STATUS,
+    all_status_labels,
+    normalize_status,
+)
 
 INCIDENTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -588,20 +595,11 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
         else:
             status_candidate = str(status_raw).strip()
 
-        normalized = status_candidate.lower()
-        status_map = {
-            "unresolved": "Unresolved",
-            "temporary resolution": "Temporary Resolution",
-            "temporary_resolution": "Temporary Resolution",
-            "temporary-resolution": "Temporary Resolution",
-            "resolved": "Resolved",
-        }
-        if normalized in status_map:
-            status_value = status_map[normalized]
-        else:
-            raise ValueError("status must be one of: Unresolved, Temporary Resolution, Resolved")
+        status_value = normalize_status(status_candidate)
+        if not status_value:
+            raise ValueError(f"status must be one of: {', '.join(all_status_labels())}")
         # Defer persisting Resolved until required-field interaction succeeds (see block below).
-        if status_value != "Resolved":
+        if status_value != RESOLVED_STATUS:
             _set_nested(updates, ["overview", "status"], status_value)
 
     maybe_update(getattr(args, "severity", None), ["overview", "severity"], label="severity")
@@ -640,7 +638,7 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
     )
 
     # If the user transitions to "Resolved", ensure required fields are present.
-    if status_was_set and status_value == "Resolved":
+    if status_was_set and status_value == RESOLVED_STATUS:
         # TODO: once mortician has a config file, make the "Resolved required fields"
         # list configurable per deployment/teams.
         required_candidates: List[tuple[Sequence[str], str]] = [
@@ -688,7 +686,7 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
             missing_labels = [label for _path, label in empty_candidates]
             if missing_labels:
                 raise RuntimeError(
-                    "When setting status to 'Resolved', these fields must be non-empty "
+                    f"When setting status to '{RESOLVED_STATUS}', these fields must be non-empty "
                     f"(missing: {', '.join(missing_labels)})."
                 )
         else:
@@ -921,8 +919,11 @@ def guided_input():
             print("Please enter y or n.")
 
     if incident_ongoing:
-        data["overview"]["status"] = "Unresolved"
-        print("\nIncident marked as Unresolved (ongoing). Skipping resolution prompts for now.")
+        data["overview"]["status"] = DEFAULT_STATUS
+        print(
+            f"\nIncident marked as {DEFAULT_STATUS} (ongoing). "
+            "Skipping resolution prompts for now."
+        )
     else:
         print("\n=== Analysis (optional during live response) ===")
         rc = input("Root cause (optional; Enter to skip for now): ").strip()
@@ -930,22 +931,21 @@ def guided_input():
 
         while True:
             print("\n=== Status ===")
-            print("1. Unresolved")
-            print("2. Temporary resolution")
-            print("3. Resolved")
-            status_choice = input("Enter choice (1-3): ").strip()
-            if status_choice == "1":
-                data["overview"]["status"] = "Unresolved"
-                break
-            if status_choice == "2":
-                data["overview"]["status"] = "Temporary Resolution"
+            statuses = all_status_labels()
+            for idx, label in enumerate(statuses, start=1):
+                print(f"{idx}. {label}")
+            status_choice = input(f"Enter choice (1-{len(statuses)}): ").strip()
+            try:
+                selected = statuses[int(status_choice) - 1]
+            except (ValueError, IndexError):
+                print(f"Invalid choice. Please select 1-{len(statuses)}.")
+                continue
+            data["overview"]["status"] = selected
+            if normalize_status(selected) == TEMPORARY_STATUS:
                 data["resolution"]["temporary_fix"] = input("Temporary fix / mitigation: ").strip()
-                break
-            if status_choice == "3":
-                data["overview"]["status"] = "Resolved"
+            if normalize_status(selected) == RESOLVED_STATUS:
                 data["resolution"]["permanent_fix"] = input("Permanent fix: ").strip()
-                break
-            print("Invalid choice. Please select 1, 2, or 3.")
+            break
 
     # Minimal overview so merge does not clobber title/date/time from the bundle.
     overview_out = {}

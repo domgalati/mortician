@@ -601,6 +601,27 @@
     .timeline .timeline-body:focus-visible {
       box-shadow: 0 0 0 2px var(--accent-dim);
     }
+    .assets-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .assets-list li {
+      padding: 0.25rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .assets-list li:last-child {
+      border-bottom: none;
+    }
+    .assets-list a {
+      color: var(--accent);
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .assets-list a:hover {
+      text-decoration: underline;
+    }
     .md {
       font-size: 0.92rem;
       line-height: 1.6;
@@ -663,6 +684,22 @@
     html[data-theme="light"] .md th { background: rgba(197, 208, 223, 0.35); }
     .md a { color: var(--accent); }
     .md a:hover { text-decoration: underline; }
+    .md img {
+      display: block;
+      max-width: min(100%, 960px);
+      width: auto;
+      height: auto;
+      margin: 0.5rem 0 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      object-fit: contain;
+    }
+    .timeline .a.md img {
+      max-width: min(100%, 680px);
+      margin-top: 0.35rem;
+      margin-bottom: 0.45rem;
+    }
     .md hr {
       border: none;
       border-top: 1px solid var(--border);
@@ -776,11 +813,8 @@
     <aside>
       <div class="sidebar-tools">
         <input type="search" id="sidebarSearch" class="sidebar-search" placeholder="Filter incidents by title or id" />
-        <div class="sidebar-filters">
+        <div class="sidebar-filters" id="sidebarStatusFilters">
           <button type="button" class="chip active" data-status-filter="all">All</button>
-          <button type="button" class="chip" data-status-filter="unresolved">Unresolved</button>
-          <button type="button" class="chip" data-status-filter="temporary">Temporary</button>
-          <button type="button" class="chip" data-status-filter="resolved">Resolved</button>
         </div>
       </div>
       <div class="sidebar-groups" id="incidentList"></div>
@@ -802,6 +836,7 @@
     const themeToggle = document.getElementById("themeToggle");
     const toastWrap = document.getElementById("toastWrap");
     const sidebarSearch = document.getElementById("sidebarSearch");
+    const sidebarStatusFilters = document.getElementById("sidebarStatusFilters");
 
     let selectedId = null;
     let summaries = [];
@@ -824,12 +859,66 @@
     const SIDEBAR_COLLAPSED_KEY = "mortician.sidebarCollapsed";
     const THEME_KEY = "mortician.theme";
 
-    const STATUS_BUCKETS = [
+    let STATUS_BUCKETS = [
       { key: "unresolved", label: "Unresolved", labelClass: "label-unresolved" },
       { key: "temporary", label: "Temporary resolution", labelClass: "label-temporary" },
       { key: "resolved", label: "Resolved", labelClass: "label-resolved" },
       { key: "other", label: "Other", labelClass: "label-other" },
     ];
+    let STATUS_CONFIG = { statuses: [] };
+    let STATUS_META_BY_LABEL = new Map();
+
+    function rebuildStatusMeta() {
+      STATUS_META_BY_LABEL = new Map();
+      const statuses = Array.isArray(STATUS_CONFIG.statuses) ? STATUS_CONFIG.statuses : [];
+      for (const s of statuses) {
+        const label = String(s.label || "").trim();
+        if (!label) continue;
+        const meta = {
+          bucket: String(s.bucket || "other"),
+          badgeClass: String(s.badgeClass || ""),
+        };
+        STATUS_META_BY_LABEL.set(label.toLowerCase(), meta);
+        STATUS_META_BY_LABEL.set(String(s.key || "").toLowerCase(), meta);
+        const aliases = Array.isArray(s.aliases) ? s.aliases : [];
+        for (const alias of aliases) {
+          STATUS_META_BY_LABEL.set(String(alias || "").toLowerCase(), meta);
+        }
+      }
+    }
+
+    function renderStatusFilterChips() {
+      if (!sidebarStatusFilters) return;
+      const current = sidebarStatusFilter || "all";
+      sidebarStatusFilters.innerHTML = "";
+      const allBtn = document.createElement("button");
+      allBtn.type = "button";
+      allBtn.className = "chip" + (current === "all" ? " active" : "");
+      allBtn.dataset.statusFilter = "all";
+      allBtn.textContent = "All";
+      sidebarStatusFilters.appendChild(allBtn);
+      for (const b of STATUS_BUCKETS) {
+        if (b.key === "other") continue;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip" + (current === b.key ? " active" : "");
+        btn.dataset.statusFilter = b.key;
+        btn.textContent = b.label || b.key;
+        sidebarStatusFilters.appendChild(btn);
+      }
+    }
+
+    async function loadStatusConfig() {
+      const r = await fetch("/api/statuses");
+      if (!r.ok) throw new Error("Failed to load statuses");
+      const cfg = await r.json();
+      STATUS_CONFIG = cfg || { statuses: [] };
+      if (Array.isArray(cfg.buckets) && cfg.buckets.length) {
+        STATUS_BUCKETS = cfg.buckets;
+      }
+      rebuildStatusMeta();
+      renderStatusFilterChips();
+    }
 
     function initTheme() {
       let t = localStorage.getItem(THEME_KEY);
@@ -875,10 +964,9 @@
     });
 
     function statusBucket(raw) {
-      const s = (raw || "").toLowerCase();
-      if (s.includes("unresolved")) return "unresolved";
-      if (s.includes("temporary")) return "temporary";
-      if (s.includes("resolved")) return "resolved";
+      const s = String(raw || "").trim().toLowerCase();
+      const meta = STATUS_META_BY_LABEL.get(s);
+      if (meta && meta.bucket) return meta.bucket;
       return "other";
     }
 
@@ -909,16 +997,16 @@
       const chip = e.target.closest(".chip[data-status-filter]");
       if (!chip) return;
       sidebarStatusFilter = chip.dataset.statusFilter || "all";
-      document.querySelectorAll(".chip[data-status-filter]").forEach((el) => {
+      document.querySelectorAll("#sidebarStatusFilters .chip[data-status-filter]").forEach((el) => {
         el.classList.toggle("active", el === chip);
       });
       renderList();
     });
 
     function statusClass(status) {
-      const s = (status || "").toLowerCase();
-      if (s.includes("resolved")) return "resolved";
-      if (s.includes("unresolved") || s.includes("temporary")) return "unresolved";
+      const s = String(status || "").trim().toLowerCase();
+      const meta = STATUS_META_BY_LABEL.get(s);
+      if (meta && meta.badgeClass) return meta.badgeClass;
       return "";
     }
 
@@ -1916,6 +2004,21 @@
       lastActions = actions;
       ownerSuggestions = collectOwnerSuggestions(d, actions);
       const actionsHtml = buildActionsHtml(actions);
+      const assets = Array.isArray(d.assets) ? d.assets : [];
+      const assetsHtml = assets.length
+        ? '<ul class="assets-list">' +
+          assets.map((assetPath) => {
+            const p = String(assetPath || "").trim();
+            if (!p) return "";
+            const href =
+              "/api/postmortems/" +
+              encodeURIComponent(id) +
+              "/assets/" +
+              p.split("/").map((part) => encodeURIComponent(part)).join("/");
+            return '<li><a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(p) + "</a></li>";
+          }).join("") +
+          "</ul>"
+        : '<p class="empty">No assets attached.</p>';
 
       mainEl.innerHTML =
         '<div class="detail">' +
@@ -1968,6 +2071,9 @@
         '<div id="timelineNewHost"></div>' +
         tlHtml +
         "</section>" +
+        "<section><h3>Assets</h3>" +
+        assetsHtml +
+        "</section>" +
         "</div>";
       if (preserveScroll) {
         mainEl.scrollTop = priorScrollTop;
@@ -1996,7 +2102,9 @@
       };
     }
 
-    loadSummaries()
+    loadStatusConfig()
+      .catch(() => {})
+      .then(() => loadSummaries())
       .then(() => {
         mainEl.innerHTML = '<p class="empty">Select an incident.</p>';
       })

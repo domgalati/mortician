@@ -36,6 +36,7 @@ from .bundle import (
     sort_timeline_by_time,
     write_index_md_atomic,
 )
+from .statuses import status_config_payload
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -104,6 +105,10 @@ async def lifespan(app: Starlette):
 
 async def api_list(_request: Request):
     return JSONResponse(_summaries())
+
+
+async def api_statuses(_request: Request):
+    return JSONResponse(status_config_payload())
 
 
 async def api_get(request: Request):
@@ -442,6 +447,7 @@ async def api_events(_request: Request):
 
 
 routes = [
+    Route("/api/statuses", endpoint=api_statuses, methods=["GET"]),
     Route("/api/postmortems", endpoint=api_list, methods=["GET"]),
     Route(
         "/api/postmortems/{issue_id}/export.zip",

@@ -11,6 +11,7 @@ from .state import (
     require_active_issue_id,
     set_active_issue_id,
 )
+from .statuses import all_status_labels
 
 try:
     import argcomplete  # type: ignore
@@ -45,7 +46,7 @@ def _incident_id_completer(prefix: str, **_kwargs) -> List[str]:
 def _status_completer(prefix: str, **_kwargs) -> List[str]:
     """Complete common status values."""
     p = (prefix or "").strip().lower()
-    statuses = ["Unresolved", "Temporary Resolution", "Resolved"]
+    statuses = all_status_labels()
     if not p:
         return statuses
     return [s for s in statuses if s.lower().startswith(p)]
