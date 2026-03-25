@@ -215,7 +215,7 @@ def main():
 
     show_parser = subparsers.add_parser(
         "show",
-        help="Show one incident as Markdown, or list all when issue_id is omitted",
+        help="Show one incident as Markdown (active incident when issue_id is omitted)",
     )
     show_issue_id = show_parser.add_argument(
         "issue_id",
@@ -457,11 +457,12 @@ def main():
             render_backend = None
         elif render_backend is None and env_render:
             render_backend = "rich"
+        issue_id = args.issue_id or require_active_issue_id()
         show_postmortem(
-            issue_id=args.issue_id,
+            issue_id=issue_id,
             status_filter=args.status,
             date_filter=args.date,
-            render=render_backend if render_backend and args.issue_id else None,
+            render=render_backend,
         )
     elif args.command == "list":
         show_postmortem(
