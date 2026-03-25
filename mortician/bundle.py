@@ -356,6 +356,27 @@ def _md_resolution_block(resolution: Dict[str, Any]) -> str:
     return f"## {H_RESOLUTION}\n\n{inner}"
 
 
+def _parse_h3_subsection(body: str, subtitle: str) -> str:
+    """Extract ### subtitle body until next ### heading or EOF."""
+    if not body.strip():
+        return ""
+    lines = body.splitlines()
+    target = f"### {subtitle}"
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == target:
+            start = i + 1
+            break
+    if start is None:
+        return ""
+    out: List[str] = []
+    for line in lines[start:]:
+        if line.startswith("### "):
+            break
+        out.append(line)
+    return "\n".join(out).strip()
+
+
 def parse_index_md(text: str) -> Dict[str, str]:
     """Split index.md into summary, impact, root cause, resolution temp/perm bodies."""
     lines = text.splitlines()
@@ -402,28 +423,7 @@ def parse_index_md(text: str) -> Dict[str, str]:
 
 
 def _parse_resolution_subsection(resolution_body: str, sub: str) -> str:
-    """Extract ### Sub body until next ### or EOF."""
-    if not resolution_body.strip():
-        return ""
-    lines = resolution_body.splitlines()
-    target = f"### {sub}"
-    start = None
-    for i, line in enumerate(lines):
-        if line.strip() == target:
-            start = i + 1
-            break
-    if start is None:
-        return ""
-    buf: List[str] = []
-    for line in lines[start:]:
-        # Stop at the next heading. We intentionally do not allow nested
-        # "### Temporary"/"### Permanent" headings inside the subsection
-        # body; those indicate broken legacy parsing and would otherwise get
-        # re-serialized back into index.md.
-        if line.startswith("### "):
-            break
-        buf.append(line)
-    return "\n".join(buf).strip()
+    return _parse_h3_subsection(resolution_body, sub)
 
 
 def _parse_resolution_subsections(resolution_body: str) -> Tuple[str, str]:
@@ -680,8 +680,12 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
 
 def write_index_md_atomic(bundle: Path, content: str) -> None:
     """Write index.md atomically (temp file in bundle dir, then replace)."""
-    path = bundle / INDEX_FILENAME
-    tmp = bundle / f".{INDEX_FILENAME}.tmp"
+    write_text_atomic(bundle / INDEX_FILENAME, content)
+
+
+def write_text_atomic(path: Path, content: str) -> None:
+    """Write text atomically (temp file in the same directory, then replace)."""
+    tmp = path.parent / f".{path.name}.tmp"
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
@@ -755,23 +759,21 @@ def patch_index_md_section(bundle: Path, section: str, body: str) -> None:
 
 
 def _parse_markdown_subsection(body: str, subtitle: str) -> str:
-    if not body.strip():
-        return ""
-    lines = body.splitlines()
-    target = f"### {subtitle}"
-    start = None
-    for i, line in enumerate(lines):
-        if line.strip() == target:
-            start = i + 1
-            break
-    if start is None:
-        return ""
-    out: List[str] = []
-    for line in lines[start:]:
-        if line.startswith("### "):
-            break
-        out.append(line)
-    return "\n".join(out).strip()
+    return _parse_h3_subsection(body, subtitle)
+
+
+def action_item_is_done(item: Dict[str, Any]) -> bool:
+    return item.get("done") is True or item.get("completed") is True
+
+
+def set_action_done_fields(item: Dict[str, Any], done: bool, *, preserve_completed: bool) -> None:
+    item["done"] = bool(done)
+    if preserve_completed:
+        if "completed" in item:
+            item["completed"] = bool(done)
+    else:
+        if "completed" in item:
+            del item["completed"]
 
 
 def _parse_impact_subsections(impact_md: str) -> Dict[str, str]:
@@ -817,8 +819,10 @@ def patch_action_item(bundle: Path, index: int, updates: Dict[str, Any]) -> None
         raise ValueError("action item is not a mapping")
 
     for k, v in updates.items():
-        if k in ("done", "completed"):
-            item[k] = bool(v) if v is not None else False
+        if k == "done":
+            set_action_done_fields(item, bool(v) if v is not None else False, preserve_completed=True)
+        elif k == "completed":
+            item["completed"] = bool(v) if v is not None else False
         else:
             item[k] = _coerce_simple(v)
 
@@ -835,9 +839,7 @@ def bulk_set_action_done(bundle: Path, done: bool) -> int:
     for i, item in enumerate(items):
         if not isinstance(item, dict):
             continue
-        item["done"] = bool(done)
-        if "completed" in item:
-            item["completed"] = bool(done)
+        set_action_done_fields(item, done, preserve_completed=True)
         items[i] = {str(kk): _coerce_simple(vv) for kk, vv in item.items()}
         updated += 1
     _write_actions(bundle, items)
@@ -953,9 +955,7 @@ def _count_unresolved_actions(bundle: Path) -> int:
     for item in items:
         if not isinstance(item, dict):
             continue
-        done = item.get("done")
-        completed = item.get("completed")
-        if not (done is True or completed is True):
+        if not action_item_is_done(item):
             total += 1
     return total
 

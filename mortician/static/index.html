@@ -859,14 +859,14 @@
     const SIDEBAR_COLLAPSED_KEY = "mortician.sidebarCollapsed";
     const THEME_KEY = "mortician.theme";
 
-    let STATUS_BUCKETS = [
-      { key: "unresolved", label: "Unresolved", labelClass: "label-unresolved" },
-      { key: "temporary", label: "Temporary resolution", labelClass: "label-temporary" },
-      { key: "resolved", label: "Resolved", labelClass: "label-resolved" },
-      { key: "other", label: "Other", labelClass: "label-other" },
-    ];
+    let STATUS_BUCKETS = [{ key: "other", label: "Other", labelClass: "label-other" }];
     let STATUS_CONFIG = { statuses: [] };
     let STATUS_META_BY_LABEL = new Map();
+    let IMPACT_HEADINGS = {
+      affected_services: "Affected Services",
+      duration_of_outage: "Duration of Outage",
+      business_impact: "Business Impact",
+    };
 
     function rebuildStatusMeta() {
       STATUS_META_BY_LABEL = new Map();
@@ -915,6 +915,12 @@
       STATUS_CONFIG = cfg || { statuses: [] };
       if (Array.isArray(cfg.buckets) && cfg.buckets.length) {
         STATUS_BUCKETS = cfg.buckets;
+      }
+      if (cfg && cfg.impact_headings && typeof cfg.impact_headings === "object") {
+        IMPACT_HEADINGS = {
+          ...IMPACT_HEADINGS,
+          ...cfg.impact_headings,
+        };
       }
       rebuildStatusMeta();
       renderStatusFilterChips();
@@ -1048,9 +1054,9 @@
       const duration = String(imp.duration_of_outage || "").trim();
       const business = String(imp.business_impact || "").trim();
       let impactMarkdown = "";
-      if (affected) impactMarkdown += "### Affected Services\n" + affected + "\n\n";
-      if (duration) impactMarkdown += "### Duration of Outage\n" + duration + "\n\n";
-      if (business) impactMarkdown += "### Business Impact\n" + business + "\n\n";
+      if (affected) impactMarkdown += "### " + IMPACT_HEADINGS.affected_services + "\n" + affected + "\n\n";
+      if (duration) impactMarkdown += "### " + IMPACT_HEADINGS.duration_of_outage + "\n" + duration + "\n\n";
+      if (business) impactMarkdown += "### " + IMPACT_HEADINGS.business_impact + "\n" + business + "\n\n";
       return impactMarkdown;
     }
 
@@ -1066,19 +1072,19 @@
       }
       for (const line of lines) {
         const t = line.trim();
-        if (t === "### Affected Services") {
+        if (t === "### " + IMPACT_HEADINGS.affected_services) {
           commit();
           key = "affected";
           flush.length = 0;
           continue;
         }
-        if (t === "### Duration of Outage") {
+        if (t === "### " + IMPACT_HEADINGS.duration_of_outage) {
           commit();
           key = "duration";
           flush.length = 0;
           continue;
         }
-        if (t === "### Business Impact") {
+        if (t === "### " + IMPACT_HEADINGS.business_impact) {
           commit();
           key = "business";
           flush.length = 0;
@@ -1190,20 +1196,22 @@
 
     async function patchAction(index, payload) {
       if (!selectedId) return false;
+      const path = "/api/postmortems/" + encodeURIComponent(selectedId) + "/actions/" + index;
+      return apiJson(path, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }, {
+        defaultError: "Update failed",
+        successToast: "Action updated",
+      });
+    }
+
+    async function apiJson(url, options, cfg) {
       try {
-        const r = await fetch(
-          "/api/postmortems/" +
-            encodeURIComponent(selectedId) +
-            "/actions/" +
-            index,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }
-        );
+        const r = await fetch(url, options || {});
         if (!r.ok) {
-          let msg = "Update failed";
+          let msg = (cfg && cfg.defaultError) || "Request failed";
           try {
             const j = await r.json();
             if (j.error) msg = j.error;
@@ -1212,7 +1220,7 @@
           showToast(msg, "error");
           return false;
         }
-        showToast("Action updated");
+        if (cfg && cfg.successToast) showToast(cfg.successToast);
         return true;
       } catch (_) {
         alert("Network error");
@@ -1223,95 +1231,68 @@
 
     async function postAction(payload) {
       if (!selectedId) return false;
-      try {
-        const r = await fetch(
-          "/api/postmortems/" + encodeURIComponent(selectedId) + "/actions",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }
-        );
-        if (!r.ok) {
-          let msg = "Could not add item";
-          try {
-            const j = await r.json();
-            if (j.error) msg = j.error;
-          } catch (_) {}
-          alert(msg);
-          showToast(msg, "error");
-          return false;
-        }
-        showToast("Action added");
-        return true;
-      } catch (_) {
-        alert("Network error");
-        showToast("Network error", "error");
-        return false;
-      }
+      return apiJson(
+        "/api/postmortems/" + encodeURIComponent(selectedId) + "/actions",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        { defaultError: "Could not add item", successToast: "Action added" }
+      );
     }
 
     async function postTimeline(payload) {
       if (!selectedId) return false;
-      try {
-        const r = await fetch(
-          "/api/postmortems/" + encodeURIComponent(selectedId) + "/timeline",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }
-        );
-        if (!r.ok) {
-          let msg = "Could not add timeline event";
-          try {
-            const j = await r.json();
-            if (j.error) msg = j.error;
-          } catch (_) {}
-          alert(msg);
-          showToast(msg, "error");
-          return false;
-        }
-        showToast("Timeline event added");
-        return true;
-      } catch (_) {
-        alert("Network error");
-        showToast("Network error", "error");
-        return false;
-      }
+      return apiJson(
+        "/api/postmortems/" + encodeURIComponent(selectedId) + "/timeline",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        { defaultError: "Could not add timeline event", successToast: "Timeline event added" }
+      );
     }
 
     async function patchTimeline(index, payload) {
       if (!selectedId) return false;
-      try {
-        const r = await fetch(
-          "/api/postmortems/" +
-            encodeURIComponent(selectedId) +
-            "/timeline/" +
-            index,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }
-        );
-        if (!r.ok) {
-          let msg = "Update failed";
-          try {
-            const j = await r.json();
-            if (j.error) msg = j.error;
-          } catch (_) {}
-          alert(msg);
-          showToast(msg, "error");
-          return false;
-        }
-        showToast("Timeline event updated");
-        return true;
-      } catch (_) {
-        alert("Network error");
-        showToast("Network error", "error");
-        return false;
-      }
+      return apiJson(
+        "/api/postmortems/" + encodeURIComponent(selectedId) + "/timeline/" + index,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        { defaultError: "Update failed", successToast: "Timeline event updated" }
+      );
+    }
+
+    function actionFormHtml() {
+      return (
+        '<form class="action-edit-form">' +
+        '<label class="act-field"><span>Task</span><textarea name="task" rows="3"></textarea></label>' +
+        '<label class="act-field"><span>Owner</span><input type="text" name="owner" list="ownerSuggestionsList" autocomplete="off" /></label>' +
+        '<label class="act-field"><span>Due</span><input type="date" name="due" autocomplete="off" /></label>' +
+        '<div class="editor-actions">' +
+        '<button type="submit" class="btn-save">Save</button>' +
+        '<button type="button" class="btn-cancel">Cancel</button>' +
+        "</div></form>"
+      );
+    }
+
+    function timelineFormHtml(withPlaceholder) {
+      return (
+        '<form class="action-edit-form">' +
+        '<label class="act-field"><span>Time</span><input type="text" name="time" autocomplete="off"' +
+        (withPlaceholder ? ' placeholder="2026-03-24 14:30 UTC"' : "") +
+        " /></label>" +
+        '<label class="act-field"><span>Action</span><textarea name="action" rows="3"></textarea></label>' +
+        '<div class="editor-actions">' +
+        '<button type="submit" class="btn-save">Save</button>' +
+        '<button type="button" class="btn-cancel">Cancel</button>' +
+        "</div></form>"
+      );
     }
 
     async function reorderActions(fromIndex, toIndex) {
@@ -1361,15 +1342,7 @@
       destroyActiveEditor();
       closeActionRowEditor();
       closeTimelineRowEditor();
-      host.innerHTML =
-        '<form class="action-edit-form">' +
-        '<label class="act-field"><span>Task</span><textarea name="task" rows="3"></textarea></label>' +
-        '<label class="act-field"><span>Owner</span><input type="text" name="owner" list="ownerSuggestionsList" autocomplete="off" /></label>' +
-        '<label class="act-field"><span>Due</span><input type="date" name="due" autocomplete="off" /></label>' +
-        '<div class="editor-actions">' +
-        '<button type="submit" class="btn-save">Save</button>' +
-        '<button type="button" class="btn-cancel">Cancel</button>' +
-        "</div></form>";
+      host.innerHTML = actionFormHtml();
       const form = host.querySelector("form");
       form.querySelector(".btn-cancel").addEventListener("click", () => {
         host.innerHTML = "";
@@ -1401,14 +1374,7 @@
       destroyActiveEditor();
       closeActionRowEditor();
       closeTimelineRowEditor();
-      host.innerHTML =
-        '<form class="action-edit-form">' +
-        '<label class="act-field"><span>Time</span><input type="text" name="time" autocomplete="off" placeholder="2026-03-24 14:30 UTC" /></label>' +
-        '<label class="act-field"><span>Action</span><textarea name="action" rows="3"></textarea></label>' +
-        '<div class="editor-actions">' +
-        '<button type="submit" class="btn-save">Save</button>' +
-        '<button type="button" class="btn-cancel">Cancel</button>' +
-        "</div></form>";
+      host.innerHTML = timelineFormHtml(true);
       const form = host.querySelector("form");
       form.querySelector(".btn-cancel").addEventListener("click", () => {
         host.innerHTML = "";
@@ -1452,15 +1418,7 @@
       actionEditBody = bodyEl;
       actionEditSnapshot = bodyEl.innerHTML;
 
-      bodyEl.innerHTML =
-        '<form class="action-edit-form">' +
-        '<label class="act-field"><span>Task</span><textarea name="task" rows="3"></textarea></label>' +
-        '<label class="act-field"><span>Owner</span><input type="text" name="owner" list="ownerSuggestionsList" autocomplete="off" /></label>' +
-        '<label class="act-field"><span>Due</span><input type="date" name="due" autocomplete="off" /></label>' +
-        '<div class="editor-actions">' +
-        '<button type="submit" class="btn-save">Save</button>' +
-        '<button type="button" class="btn-cancel">Cancel</button>' +
-        "</div></form>";
+      bodyEl.innerHTML = actionFormHtml();
 
       const form = bodyEl.querySelector("form");
       form.elements.task.value = task;
@@ -1501,14 +1459,7 @@
       timelineEditBody = bodyEl;
       timelineEditSnapshot = bodyEl.innerHTML;
 
-      bodyEl.innerHTML =
-        '<form class="action-edit-form">' +
-        '<label class="act-field"><span>Time</span><input type="text" name="time" autocomplete="off" /></label>' +
-        '<label class="act-field"><span>Action</span><textarea name="action" rows="3"></textarea></label>' +
-        '<div class="editor-actions">' +
-        '<button type="submit" class="btn-save">Save</button>' +
-        '<button type="button" class="btn-cancel">Cancel</button>' +
-        "</div></form>";
+      bodyEl.innerHTML = timelineFormHtml(false);
 
       const form = bodyEl.querySelector("form");
       form.elements.time.value = time;
@@ -1718,14 +1669,11 @@
     mainEl.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       const ab = e.target.closest(".action-body");
-      if (!ab || ab.querySelector(".action-edit-form")) return;
-      e.preventDefault();
-      openActionRowEditor(ab);
-      return;
-    });
-
-    mainEl.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      if (ab && !ab.querySelector(".action-edit-form")) {
+        e.preventDefault();
+        openActionRowEditor(ab);
+        return;
+      }
       const tb = e.target.closest(".timeline-body");
       if (!tb || tb.querySelector(".action-edit-form")) return;
       e.preventDefault();

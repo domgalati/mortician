@@ -15,10 +15,13 @@ from typing import AbstractSet, Any, Dict, List, Optional, Sequence, Tuple
 
 from .bundle import (
     INCIDENTS_DIR,
+    action_item_is_done,
     create_bundle,
     find_bundle_dir,
     load_postmortem as _load_postmortem_bundle,
     save_postmortem as _save_postmortem_bundle,
+    set_action_done_fields,
+    write_text_atomic,
     write_index_md_atomic,
 )
 from .templates import DEFAULT_POSTMORTEM
@@ -268,13 +271,6 @@ def _set_nested(d: Dict[str, Any], path: Sequence[str], value: Any) -> None:
             cur[key] = {}
         cur = cur[key]
     cur[path[-1]] = value
-
-
-def _write_text_atomic(path: Path, content: str) -> None:
-    """Write text atomically via tmp+replace (best-effort cross-platform)."""
-    tmp = path.parent / f".{path.name}.tmp"
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
 
 
 def _combine_bundle_files_for_editor(
@@ -961,11 +957,7 @@ def guided_input():
 
 
 def _action_item_is_done(item: Dict[str, Any]) -> bool:
-    if item.get("done") is True:
-        return True
-    if item.get("completed") is True:
-        return True
-    return False
+    return action_item_is_done(item)
 
 
 def append_action_item(
@@ -1099,9 +1091,7 @@ def set_action_item_done(issue_id: str, index: int, *, done: bool) -> int:
     if not isinstance(item, dict):
         print("Error: item is not a dict; edit actions.yaml manually.", file=sys.stderr)
         return 1
-    item["done"] = bool(done)
-    if "completed" in item:
-        del item["completed"]
+    set_action_done_fields(item, done, preserve_completed=False)
     save_postmortem(issue_id, data)
     state = "done" if done else "not done"
     print(f"Action item {index} marked {state} on '{issue_id}'.")
@@ -1137,13 +1127,10 @@ def append_timeline_entry(
         print(f"No postmortem found for issue: {issue_id}", file=sys.stderr)
         return 1
 
-    body = action if action is not None else sys.stdin.read()
-    body = (body or "").strip()
-    if not body:
-        print("Error: no action text (use --action or pipe stdin).", file=sys.stderr)
+    t, body, err = _normalize_timeline_row_input(time_str=time_str, action=action, allow_stdin=True)
+    if err:
+        print(err, file=sys.stderr)
         return 1
-
-    t = (time_str or "").strip() or default_timeline_timestamp()
     data.setdefault("timeline", [])
     data["timeline"].append({"time": t, "action": body})
     save_postmortem(issue_id, data)
@@ -1212,9 +1199,15 @@ def add_timeline_entry_interactive(
             else:
                 seed = stdin_text or ""
             edited = _edit_text_in_editor(seed, field_label="action")
-            a_val = (edited or "").strip()
+            a_val = edited
 
-        return append_timeline_entry(issue_id, time_str=t_val, action=a_val)
+        t_norm, a_norm, err = _normalize_timeline_row_input(
+            time_str=t_val, action=a_val, allow_stdin=False
+        )
+        if err:
+            print(err, file=sys.stderr)
+            return 1
+        return append_timeline_entry(issue_id, time_str=t_norm, action=a_norm)
     finally:
         sys.stdin = orig_stdin
         if tty_in is not None:
@@ -1301,6 +1294,17 @@ def _extract_stamp_from_text(text: str) -> Optional[str]:
             return None
 
     return None
+
+
+def _normalize_timeline_row_input(
+    *, time_str: Optional[str], action: Optional[str], allow_stdin: bool
+) -> Tuple[str, str, Optional[str]]:
+    body = action if action is not None else (sys.stdin.read() if allow_stdin else "")
+    body_text = (body or "").strip()
+    if not body_text:
+        return "", "", "Error: no action text (use --action or pipe stdin)."
+    time_text = (time_str or "").strip() or default_timeline_timestamp()
+    return time_text, body_text, None
 
 
 def _prompt_timeline_time_with_stamp(

@@ -1,3 +1,6 @@
+from .bundle import action_item_is_done
+
+
 def postmortem_to_markdown(data):
     """Convert a postmortem dict into a formatted Markdown string."""
     lines = []
@@ -62,7 +65,7 @@ def postmortem_to_markdown(data):
     if actions:
         for action_item in actions:
             if isinstance(action_item, dict):
-                done = action_item.get("done") is True or action_item.get("completed") is True
+                done = action_item_is_done(action_item)
                 mark = "[x]" if done else "[ ]"
                 title = (action_item.get("task") or action_item.get("title") or "").strip()
                 rest = {

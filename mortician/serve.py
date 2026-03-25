@@ -22,6 +22,9 @@ from .bundle import (
     ASSETS_DIRNAME,
     INCIDENTS_DIR,
     INDEX_SECTION_SLUGS,
+    SUB_IMPACT_AFFECTED,
+    SUB_IMPACT_BUSINESS,
+    SUB_IMPACT_DURATION,
     append_action_row,
     append_timeline_row,
     bulk_set_action_done,
@@ -42,6 +45,41 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _subscribers: List[asyncio.Queue] = []
 _SSE_QUEUE_MAX = 8
+
+
+def _json_error(message: str, status_code: int) -> JSONResponse:
+    return JSONResponse({"error": message}, status_code=status_code)
+
+
+def _bundle_or_404(issue_id: str) -> Optional[Path]:
+    return find_bundle_dir(issue_id)
+
+
+async def _decode_utf8_body(request: Request) -> Optional[str]:
+    body = await request.body()
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+async def _parse_json_object(request: Request) -> tuple[Optional[dict], Optional[JSONResponse]]:
+    body = await request.body()
+    try:
+        text = body.decode("utf-8") if body else "{}"
+        payload = json.loads(text)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, _json_error("invalid JSON", 400)
+    if not isinstance(payload, dict):
+        return None, _json_error("body must be a JSON object", 400)
+    return payload, None
+
+
+def _parse_index_or_400(index_raw: str) -> tuple[Optional[int], Optional[JSONResponse]]:
+    try:
+        return int(index_raw), None
+    except (TypeError, ValueError):
+        return None, _json_error("invalid index", 400)
 
 
 def _summaries():
@@ -108,27 +146,31 @@ async def api_list(_request: Request):
 
 
 async def api_statuses(_request: Request):
-    return JSONResponse(status_config_payload())
+    cfg = status_config_payload()
+    cfg["impact_headings"] = {
+        "affected_services": SUB_IMPACT_AFFECTED,
+        "duration_of_outage": SUB_IMPACT_DURATION,
+        "business_impact": SUB_IMPACT_BUSINESS,
+    }
+    return JSONResponse(cfg)
 
 
 async def api_get(request: Request):
     issue_id = request.path_params["issue_id"]
     data = load_postmortem(issue_id)
     if data is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return _json_error("not found", 404)
     return JSONResponse(data)
 
 
 async def put_index_md(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8")
-    except UnicodeDecodeError:
-        return JSONResponse({"error": "invalid encoding"}, status_code=400)
+        return _json_error("not found", 404)
+    text = await _decode_utf8_body(request)
+    if text is None:
+        return _json_error("invalid encoding", 400)
     write_index_md_atomic(bundle, text)
     _notify_subscribers()
     return Response(status_code=204)
@@ -152,9 +194,9 @@ def _bundle_zip_bytes(bundle: Path) -> bytes:
 
 async def api_export_zip(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return _json_error("not found", 404)
     data = _bundle_zip_bytes(bundle)
     return Response(
         content=data,
@@ -168,43 +210,37 @@ async def api_export_zip(request: Request):
 async def api_put_section(request: Request):
     issue_id = request.path_params["issue_id"]
     section = request.path_params["section"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return _json_error("not found", 404)
     if section not in INDEX_SECTION_SLUGS:
-        return JSONResponse({"error": "unknown section"}, status_code=400)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8")
-    except UnicodeDecodeError:
-        return JSONResponse({"error": "invalid encoding"}, status_code=400)
+        return _json_error("unknown section", 400)
+    text = await _decode_utf8_body(request)
+    if text is None:
+        return _json_error("invalid encoding", 400)
     try:
         patch_index_md_section(bundle, section, text)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
 
 async def api_post_actions(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        data = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(data, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    data, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert data is not None
     raw_task = data.get("task")
     if raw_task is None:
-        return JSONResponse({"error": "task is required"}, status_code=400)
+        return _json_error("task is required", 400)
     task = str(raw_task).strip()
     if not task:
-        return JSONResponse({"error": "task is required"}, status_code=400)
+        return _json_error("task is required", 400)
     owner = data.get("owner")
     due = data.get("due")
     o = (owner.strip() if isinstance(owner, str) else "") or ""
@@ -212,7 +248,7 @@ async def api_post_actions(request: Request):
     try:
         append_action_row(bundle, task=task, owner=o, due=d)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
@@ -220,46 +256,37 @@ async def api_post_actions(request: Request):
 async def api_patch_action(request: Request):
     issue_id = request.path_params["issue_id"]
     index_raw = request.path_params["action_index"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    try:
-        index = int(index_raw)
-    except (TypeError, ValueError):
-        return JSONResponse({"error": "invalid index"}, status_code=400)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        updates = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(updates, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    index, idx_err = _parse_index_or_400(index_raw)
+    if idx_err is not None:
+        return idx_err
+    updates, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert updates is not None and index is not None
     if not updates:
         return Response(status_code=204)
     try:
         patch_action_item(bundle, index, updates)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
 
 async def api_bulk_action_state(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        payload = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(payload, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    payload, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert payload is not None
     if "done" not in payload:
-        return JSONResponse({"error": "done is required"}, status_code=400)
+        return _json_error("done is required", 400)
     updated = bulk_set_action_done(bundle, bool(payload.get("done")))
     _notify_subscribers()
     return JSONResponse({"updated": updated})
@@ -267,94 +294,82 @@ async def api_bulk_action_state(request: Request):
 
 async def api_reorder_action(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        payload = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(payload, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    payload, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert payload is not None
     try:
         from_index = int(payload.get("from_index"))
         to_index = int(payload.get("to_index"))
     except (TypeError, ValueError):
-        return JSONResponse({"error": "from_index and to_index are required integers"}, status_code=400)
+        return _json_error("from_index and to_index are required integers", 400)
     try:
         reorder_action_item(bundle, from_index, to_index)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
 
 async def api_post_timeline(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        data = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(data, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    data, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert data is not None
     raw_time = data.get("time")
     raw_action = data.get("action")
     if raw_time is None:
-        return JSONResponse({"error": "time is required"}, status_code=400)
+        return _json_error("time is required", 400)
     if raw_action is None:
-        return JSONResponse({"error": "action is required"}, status_code=400)
+        return _json_error("action is required", 400)
     time = str(raw_time).strip()
     action = str(raw_action).strip()
     if not time:
-        return JSONResponse({"error": "time is required"}, status_code=400)
+        return _json_error("time is required", 400)
     if not action:
-        return JSONResponse({"error": "action is required"}, status_code=400)
+        return _json_error("action is required", 400)
     try:
         append_timeline_row(bundle, time=time, action=action)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
 
 async def api_reorder_timeline(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        payload = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(payload, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    payload, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert payload is not None
     try:
         from_index = int(payload.get("from_index"))
         to_index = int(payload.get("to_index"))
     except (TypeError, ValueError):
-        return JSONResponse({"error": "from_index and to_index are required integers"}, status_code=400)
+        return _json_error("from_index and to_index are required integers", 400)
     try:
         reorder_timeline_item(bundle, from_index, to_index)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
 
 async def api_sort_timeline_by_time(request: Request):
     issue_id = request.path_params["issue_id"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return _json_error("not found", 404)
     updated = sort_timeline_by_time(bundle)
     _notify_subscribers()
     return JSONResponse({"updated": updated})
@@ -363,27 +378,22 @@ async def api_sort_timeline_by_time(request: Request):
 async def api_patch_timeline(request: Request):
     issue_id = request.path_params["issue_id"]
     index_raw = request.path_params["timeline_index"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    try:
-        index = int(index_raw)
-    except (TypeError, ValueError):
-        return JSONResponse({"error": "invalid index"}, status_code=400)
-    body = await request.body()
-    try:
-        text = body.decode("utf-8") if body else "{}"
-        updates = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JSONResponse({"error": "invalid JSON"}, status_code=400)
-    if not isinstance(updates, dict):
-        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        return _json_error("not found", 404)
+    index, idx_err = _parse_index_or_400(index_raw)
+    if idx_err is not None:
+        return idx_err
+    updates, err = await _parse_json_object(request)
+    if err is not None:
+        return err
+    assert updates is not None and index is not None
     if not updates:
         return Response(status_code=204)
     try:
         patch_timeline_item(bundle, index, updates)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _json_error(str(e), 400)
     _notify_subscribers()
     return Response(status_code=204)
 
@@ -409,12 +419,12 @@ def _safe_asset_file(bundle: Path, asset_path: str) -> Optional[Path]:
 async def api_asset(request: Request):
     issue_id = request.path_params["issue_id"]
     asset_path = request.path_params["asset_path"]
-    bundle = find_bundle_dir(issue_id)
+    bundle = _bundle_or_404(issue_id)
     if bundle is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return _json_error("not found", 404)
     path = _safe_asset_file(bundle, asset_path)
     if path is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return _json_error("not found", 404)
     media_type, _ = mimetypes.guess_type(str(path))
     return FileResponse(path, media_type=media_type or "application/octet-stream")
 
