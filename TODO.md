@@ -1,1 +1,0 @@
-- Fixed: `mortician show` prints the selected incident (from `mortician select` when no id is given), and `mortician show --render` renders that same incident.

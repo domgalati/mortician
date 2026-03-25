@@ -1,48 +1,45 @@
-<p align="center">
-  <img src="mortician.png" style="width:40%;"/><br>
-  A Git-friendly CLI for incident postmortems.
-</p>
+# Mortician
 
-## What Mortician Is
+Mortician is built on the idea that **the best postmortem is the one you record while the incident is still happening**, not the narrative reconstructed days later from Slack scrollback and bad memory.
 
-Mortician helps incident responders capture postmortems while an incident is happening, not days later from memory.
+To make that practical, Mortician keeps each incident as a **small folder of plain files**—mostly Markdown and YAML—rather than a single opaque document or a proprietary database. That choice drives everything else:
 
-Instead of storing everything in one large document, each incident is saved as a small folder of readable files (Markdown + YAML). That gives you:
 
-- clean Git diffs
-- easy manual editing in any editor
-- scriptable automation
-- a local dashboard and HTTP API when you want a UI
+- **Humans and machines share one format.** The same bundle powers terminal interaction, a local web UI, and a small HTTP API for integrations.
+- **Git is a first-class home.** Small, structured files produce readable diffs, audit trails, and branching or review workflows that match how engineering teams already work.
+- **Tools stay optional.** Editors, scripts, `grep`, and CI can operate on the bundle directly. The CLI and dashboard are conveniences layered on the same source of truth.
+- **Capture directly from your command pipeline.** Pipe stdout/stderr into timeline entries with `mortician add`, so evidence becomes an event on the timeline immediately.
+- **A live page for quick status checks.** Run `mortician serve` and keep the dashboard open; as the incident files under `incidents/` change, the page updates in near-real time (via live SSE events), so stakeholders can see the latest timeline/actions/state just by checking the dashboard.
 
-If you are new to incident tooling, the mental model is simple: one incident equals one folder bundle, and every command reads or updates that bundle.
+One mental model covers the whole tool: **one incident is one bundle directory** under `incidents/`. Every command reads or updates that bundle.
 
-## How It Stores Data
+---
 
-Each incident lives at `incidents/{id}-{title-slug}/`.
+## Table of Contents
 
-| File / directory | Purpose |
-|---|---|
-| `meta.yaml` | Metadata: id, title, status, severity, owner, timestamps, participants |
-| `index.md` | Main narrative: summary, impact, root cause, resolution |
-| `timeline.yaml` | Ordered `events:` list (`time` + `action`, supports multi-line Markdown) |
-| `actions.yaml` | Follow-up items (`items:` list) |
-| `assets/` | Attachments like screenshots or logs |
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Optional dependencies](#optional-dependencies)
+- [What you get at a glance](#what-you-get-at-a-glance)
+- [Data layout](#data-layout)
+- [Full documentation](#full-documentation)
+<!--
+- [Feature sets](#feature-sets)
+  - [Bundles and Git-native storage](#1-bundles-and-git-native-storage)
+  - [Creating incidents and guided capture](#2-creating-incidents-and-guided-capture)
+  - [Active incident (`select`)](#3-active-incident-select)
+  - [Editing incidents](#4-editing-incidents)
+  - [Timeline capture](#5-timeline-capture)
+  - [Follow-up actions](#6-follow-up-actions)
+  - [Listing, filtering, and export](#7-listing-filtering-and-export)
+  - [Terminal rendering (`show`)](#8-terminal-rendering-show)
+  - [Local dashboard and HTTP API](#9-local-dashboard-and-http-api)
+  - [Shell completion](#10-shell-completion)
+  - [Tips and external tools](#11-tips-and-external-tools)
+-->
+- [Requirements](#requirements)
 
-This structure is the source of truth for both CLI output and the dashboard API.
-
-## Installation
-
-From the project root:
-
-```bash
-pip install .
-```
-
-Optional extras:
-
-- `pip install 'mortician[textual]'` enables the Textual fullscreen Markdown viewer for `mortician show <id> --render textual`.
-
-Rich-based terminal Markdown rendering (`mortician show <id> --render` / `--render rich`) and Rich prompts when resolving incidents with missing required fields are included in the default install.
+---
 
 ## Quick Start
 
@@ -52,7 +49,7 @@ Create an incident:
 mortician create "PostgreSQL connection saturation"
 ```
 
-Capture timeline updates as you respond (replace `<incident-id>` with the id printed by `create`):
+Capture timeline updates (replace `<incident-id>` with the id printed by `create`):
 
 ```bash
 mortician timeline add <incident-id> --action "Declared incident and started investigation"
@@ -65,7 +62,7 @@ Update status and summary:
 mortician edit <incident-id> --status "Temporary Resolution" --temp_fix "Enabled connection throttling" --summary "Connections saturated under burst load."
 ```
 
-Export or render:
+Render/export:
 
 ```bash
 mortician show <incident-id> > postmortem-<incident-id>.md
@@ -73,211 +70,246 @@ mortician show <incident-id> --render
 mortician show <incident-id> --render textual
 ```
 
-## Command Reference
+---
 
-CLI shape:
+## Installation
 
-```text
-mortician {create,edit,show,list,timeline,serve} ...
+From the repository root (development install):
+
+```bash
+pip install .
 ```
 
-### `create`
+For a normal end-user install once published, use the same pattern with your package index or a version pin as you prefer.
 
-```text
-mortician create TITLE [--guide]
+After install, the `mortician` entry point is available on your `PATH`.
+
+### Incidents Directory
+---
+Choose where incident bundles are stored. Mortician will use the `MORTICIAN_INCIDENTS_DIR` environment variable if set; otherwise it searches upward from the current working directory for an `incidents/` folder (falling back to the repo’s `incidents/` during development).
+
+Setting `MORTICIAN_INCIDENTS_DIR` lets you run `mortician` commands from any working directory and still edit the same incident bundles.
+
+Example (Bash):
+```bash
+export MORTICIAN_INCIDENTS_DIR="/path/to/your/incidents"
 ```
 
-- Creates a new incident bundle under `incidents/`.
-- Derives a short incident id from `TITLE` automatically.
-- Prints suggested next commands after creation.
-- `--guide` launches an interactive workflow tailored for live incidents.
-
-#### Guided mode (`--guide`)
-
-Guided mode collects:
-
-- incident owner and participants
-- **Summary:** short narrative of what is going on (Markdown). Placeholders `$date`, `$utc`, and `$host` are expanded when saved (shown with example values before you edit).
-- impact details and optional severity label
-- timeline entries
-- status/resolution fields (unless incident is still ongoing)
-
-If you answer that the incident is ongoing, status is set to `Unresolved` and resolution prompts are skipped.
-
-### `list`
-
-```text
-mortician list [--status STATUS] [--date YYYY-MM-DD]
+Example (PowerShell):
+```powershell
+$env:MORTICIAN_INCIDENTS_DIR="C:\path\to\your\incidents"
 ```
+---
 
-- Shows a summary table (`ID`, `Title`, `Status`, `Date`).
-- `--status` match is case-insensitive.
-- `--date` expects exact `YYYY-MM-DD`.
+## Optional dependencies
 
-### `show`
+Core functionality includes Rich-based rendering and prompts (see `pyproject.toml`). Additional behavior is gated behind extras:
 
-```text
-mortician show [issue_id] [--status STATUS] [--date YYYY-MM-DD] [--plain | --render [rich|textual]]
-```
+| Extra | Install command | What it enables |
+|--------|-----------------|-----------------|
+| **textual** | `pip install 'mortician[textual]'` | Fullscreen scrollable Markdown viewer for `mortician show <id> --render textual` (interactive TTY). |
 
-Two modes:
+Environment variable (no extra package):
 
-- with `issue_id`: prints one incident as Markdown
-- without `issue_id`: lists incidents (same behavior as `list`)
+| Variable | Effect |
+|----------|--------|
+| `MORTICIAN_SHOW_RENDER` | If set to `1`, `true`, or `yes`, `mortician show <id>` defaults to Rich rendering unless `--plain` is passed. |
+| `MORTICIAN_ADD_CMD` | When piping into `mortician add`, can supply the command string to record alongside captured output (see [Timeline capture](#5-timeline-capture)). |
 
-Output options:
+---
 
-- default: raw Markdown (good for piping to files/tools)
-- `--render` or `--render rich`: Rich-based rendering in the terminal (requires `mortician[rich]`)
-- `--render textual`: Textual fullscreen scrollable viewer (requires `mortician[textual]` and an interactive TTY)
-- `--plain`: force raw Markdown output
+## What you get at a glance
 
-Environment toggle:
+- **CLI** for creating incidents, editing metadata and narrative fields, appending timeline and action items, listing and exporting.
+- **Local dashboard** (`mortician serve`) with live refresh when files under `incidents/` change.
+- **HTTP + SSE API** for summaries, full JSON, section updates, actions, assets, and ZIP export.
+- **Readable on-disk format** you can open in any editor or track in version control.
 
-- `MORTICIAN_SHOW_RENDER=1` (also accepts `true`/`yes`) is equivalent to `--render rich` for `mortician show <id>` unless `--plain` is passed.
+---
 
-### `select`
+## Data layout
 
-```text
-mortician select [issue_id]
-```
+Each incident lives at `incidents/{id}-{title-slug}/`.
 
-- If `issue_id` is provided: sets the active incident id used by later `mortician edit` and `mortician add` commands.
-- If `issue_id` is omitted: prints the currently active incident (id + title when available).
+| Path | Role |
+|------|------|
+| `meta.yaml` | Id, title, status, severity, owner, timestamps, participants |
+| `index.md` | Main narrative (summary, impact, root cause, resolution) |
+| `timeline.yaml` | Ordered `events:` with `time` and `action` (Markdown-friendly) |
+| `actions.yaml` | Follow-up checklist (`items:`) |
+| `assets/` | Attachments (screenshots, logs, etc.) |
 
-### `edit`
+This layout is the **single source of truth** for both CLI and web UI.
 
-```text
-mortician edit [issue_id]
-  [--status [STATUS]]
-  [--severity [SEVERITY]]
-  [--owner [OWNER]]
-  [--participants [PARTICIPANTS]]
-  [--summary [SUMMARY]]
-  [--affected-services [AFFECTED_SERVICES]]
-  [--duration [DURATION]]
-  [--business-impact [BUSINESS_IMPACT]]
-  [--root-cause [ROOT_CAUSE]]
-  [--temp-fix [TEMP_FIX]]
-  [--perm-fix [PERM_FIX]]
-  [--no-input]
-  [--add-entry KEY=VALUE [KEY=VALUE ...]]
-```
+---
 
-Edits selected fields in the chosen incident bundle.
+## Full documentation
 
-Stateful behavior:
-- If `issue_id` is omitted, the CLI uses the active id from `mortician select` (or the most recently created incident).
-- If no edit flags are provided (just `mortician edit [issue_id]`), Mortician opens the full incident bundle in `$EDITOR` for roundtrip editing of `meta.yaml`, `index.md`, `timeline.yaml`, and `actions.yaml`.
+Command reference and API details live in `DOCS.md`.
 
-Editor behavior:
-- If a field flag is provided **without** a value (for example `--duration`), Mortician opens `$EDITOR` prefilled with the current value and saves what you write back to the bundle.
-- If a field flag includes a value (for example `--duration "~1h"`), the field is overwritten immediately.
-- When `--status Resolved` is set, Mortician checks required fields and (if they are empty) walks you through filling them. In a normal interactive terminal (stdin/stdout TTY), it uses Rich prompts (`Confirm` for each empty field, then multi-line entry; finish each field with a line containing only `END`). **Ctrl+C** cancels without saving and leaves status unchanged. Without a TTY, it falls back to yes/no prompts and a single `$EDITOR` session with one section per field.
+<!--
+## Feature sets
 
-`--add-entry` (back-compat) appends exactly one timeline object:
-- Pass fragments as `KEY=VALUE`.
-- Only the first `=` splits key/value, so values can contain additional `=`.
+Below, each section describes one feature area. Drop in screenshots or GIFs where noted when you have them.
 
-### `add`
+### 1. Bundles and Git-native storage
 
-```text
-mortician add [--time TIME] [--action ACTION] [--cmd CMD]
-```
+Incidents are directories of YAML and Markdown, not rows in a remote service. That supports reviewable diffs, backup via Git, and ad-hoc scripting without a custom SDK.
 
-Adds one timeline entry to the active incident.
+**Media (optional):**  
+<!-- ![Bundle layout in explorer or tree view](docs/images/bundle-tree.png) -->
 
-- If stdin is piped and `--action` is not provided, Mortician will:
-  - try to extract a timestamp from the piped text as `Stamp (...)` (if parsing succeeds)
-  - prompt for time with `Stamp (...)`, `Now (...)`, and `Enter manually` (when `questionary` is installed)
-  - prefill the `What happened?` editor: by default with the piped text only. The shell does **not** pass the command on the left of the pipe (e.g. `uptime` in `uptime | mortician add`). To record that command in the entry, use **`--cmd`** (e.g. `uptime | mortician add --cmd uptime`), or set **`MORTICIAN_ADD_CMD`**, or answer the optional **Command (optional, Enter to skip):** prompt when a TTY is available. The saved text is then a minimal block: `$ <cmd>`, a blank line, then the piped output.
-- If timestamp parsing fails, the `Stamp (...)` option is omitted, but `What happened?` is still prefilled.
+---
 
-### `timeline add`
+### 2. Creating incidents and guided capture
 
-```text
-mortician timeline add issue_id [--time TIME] [--action ACTION]
-```
+`mortician create "Title"` creates a new bundle under `incidents/`, derives a short id from the title, selects it as active, and prints suggested next steps.
 
-- Appends one timeline event (`time`, `action`).
-- `--time` defaults to current UTC time (`YYYY-MM-DD HH:MM UTC`).
-- `--action` is optional:
-  - if set, it is used directly
-  - if omitted, full `stdin` is read (great for multi-line notes/pipes)
-- Returns a non-zero exit code if no action text is provided.
+With **`--guide`**, an interactive workflow collects owner, participants, summary (with `$date`, `$utc`, `$host` placeholders), impact, optional severity, timeline entries, and resolution-oriented fields—skipping resolution prompts when you indicate the incident is still ongoing. Interrupting guided mode after create removes the unfinished bundle (see implementation for edge cases).
 
-### `serve`
+**Media (optional):**  
+<!-- ![create command and output](docs/images/create.gif) -->
+<!-- ![guided wizard excerpt](docs/images/guide.png) -->
 
-```text
-mortician serve [--host 127.0.0.1] [--port 8765]
-```
+---
 
-Starts a local dashboard server with live updates when files under `incidents/` change.
+### 3. Active incident (`select`)
 
-## HTTP API
+Many commands target “the current incident” so you do not repeat ids:
 
-The dashboard exposes a local HTTP API:
+- `mortician select <issue_id>` sets the active id for subsequent `edit`, `add`, and `action` commands.
+- `mortician select` with no id prints the active incident (id and title when available).
 
-- `GET /api/postmortems`  
-  Returns incident summary rows (`id`, `title`, `status`, `date`).
+**Media (optional):**  
+<!-- ![select and follow-up edit](docs/images/select.gif) -->
 
-- `GET /api/postmortems/{issue_id}`  
-  Returns full incident JSON assembled from the bundle.
+---
 
-- `PUT /api/postmortems/{issue_id}/index.md`
-  Replaces `index.md` with UTF-8 Markdown body (atomic write).
+### 4. Editing incidents
 
-- `GET /api/postmortems/{issue_id}/export.zip`
-  Downloads a ZIP of the incident bundle directory (dotfiles under the bundle, such as temp writes, are omitted).
+`mortician edit [issue_id] [flags]` updates fields in the bundle. If `issue_id` is omitted, the active incident is used (or the most recently created one, per existing behavior).
 
-- `PUT /api/postmortems/{issue_id}/sections/{section}`
-  Updates a single logical section of `index.md` and rewrites the file atomically. Request body is UTF-8 plain text (the section body). Valid `{section}` values: `summary`, `impact`, `root_cause`, `resolution_temporary`, `resolution_permanent`. Other bundle files are not modified.
+- **Flag with value:** immediate update (e.g. `--status Resolved`).
+- **Flag without value:** open `$EDITOR` with the current value for round-trip editing.
+- **No flags:** open the full bundle in `$EDITOR` (`meta.yaml`, `index.md`, `timeline.yaml`, `actions.yaml`).
 
-- `POST /api/postmortems/{issue_id}/actions`
-  Appends one follow-up item. Request body is JSON: `task` (required string), `owner` and `due` (optional strings).
+- **`--add-entry KEY=VALUE ...`:** append one timeline row (only the first `=` splits key and value, so values may contain `=`).
 
-- `PATCH /api/postmortems/{issue_id}/actions/{action_index}`
-  Merges fields into one row of `actions.yaml` (`items` list). `{action_index}` is **0-based**. Request body is JSON object with any of: `done`, `completed` (booleans), `task`, `title`, `owner`, `due` (strings). Unknown keys are rejected. Empty `{}` is a no-op.
+Setting status to **Resolved** can trigger prompts for missing required fields: Rich prompts in a TTY, with a non-TTY fallback.
 
-- `GET /api/postmortems/{issue_id}/assets/{asset_path}`
-  Serves files from the incident `assets/` directory (path traversal blocked).
+**Media (optional):**  
+<!-- ![edit flags vs open in editor](docs/images/edit.gif) -->
 
-- `GET /api/events`  
-  Server-Sent Events stream for live update notifications.
+---
 
-## Feature List
+### 5. Timeline capture
 
-- Git-native storage (human-readable Markdown/YAML per incident)
-- fast incident creation with generated ids
-- guided incident capture flow
-- direct field edits from CLI
-- timeline appends from flags or stdin
-- list/filter incidents by status/date
-- Markdown export and terminal rendering
-- local dashboard with live refresh
-- JSON + SSE API for integrations
-- safe asset serving and atomic markdown writes
+- **`mortician timeline add <issue_id>`** appends one event; `--time` defaults to current UTC; `--action` or stdin supplies the body.
+- **`mortician add`** appends to the **active** incident with an interactive flow. Piped stdin can capture command output; use **`--cmd`** (or `MORTICIAN_ADD_CMD`) because the shell does not pass the left-hand command through the pipe.
 
-## Shell Completion (WSL/Linux)
+**Media (optional):**  
+<!-- ![timeline add one-liner vs stdin](docs/images/timeline.gif) -->
+<!-- ![piped add with --cmd](docs/images/add-pipe.gif) -->
 
-Mortician supports shell tab completion via `argcomplete` (dynamic, flag + incident-id aware).
+---
 
-For bash:
+### 6. Follow-up actions
+
+`mortician action` manages `actions.yaml` for the active incident:
+
+- `add` — new item (`--task` or stdin; optional `--owner`, `--due`)
+- `list` — checkbox-style listing
+- `done` / `undo` — toggle completion by **1-based** index from `list`
+
+The dashboard API can also append or patch action rows (see below).
+
+**Media (optional):**  
+<!-- ![action list and done](docs/images/actions.gif) -->
+
+---
+
+### 7. Listing, filtering, and export
+
+- **`mortician list`** and **`mortician show`** (without an id) list incidents with optional `--status` (case-insensitive) and `--date YYYY-MM-DD`.
+- **`mortician show <id>`** prints one incident as Markdown (default: raw text, ideal for `>` redirection and pipes).
+
+**Media (optional):**  
+<!-- ![list with filters](docs/images/list.png) -->
+
+---
+
+### 8. Terminal rendering (`show`)
+
+- **`--plain`** forces raw Markdown.
+- **`--render` / `--render rich`** uses Rich in the terminal.
+- **`--render textual`** uses the Textual fullscreen viewer (**requires** `mortician[textual]` and an interactive TTY).
+
+**Media (optional):**  
+<!-- ![show --render rich](docs/images/show-rich.png) -->
+<!-- ![show --render textual](docs/images/show-textual.gif) -->
+
+---
+
+### 9. Local dashboard and HTTP API
+
+`mortician serve [--host 127.0.0.1] [--port 8765]` runs a local dashboard; the server watches `incidents/` and notifies clients when files change.
+
+**HTTP API (summary):**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/postmortems` | Summary rows: `id`, `title`, `status`, `date` |
+| GET | `/api/postmortems/{issue_id}` | Full incident JSON from the bundle |
+| PUT | `/api/postmortems/{issue_id}/index.md` | Replace `index.md` (atomic write) |
+| GET | `/api/postmortems/{issue_id}/export.zip` | ZIP of bundle (sensible omissions for dotfiles / temp) |
+| PUT | `/api/postmortems/{issue_id}/sections/{section}` | Update one logical section of `index.md`: `summary`, `impact`, `root_cause`, `resolution_temporary`, `resolution_permanent` |
+| POST | `/api/postmortems/{issue_id}/actions` | JSON: `task` (required), optional `owner`, `due` |
+| PATCH | `/api/postmortems/{issue_id}/actions/{action_index}` | Merge into **0-based** action row: `done`, `completed`, `task`, `title`, `owner`, `due` |
+| GET | `/api/postmortems/{issue_id}/assets/{asset_path}` | Serve from `assets/` (path traversal blocked) |
+| GET | `/api/events` | Server-Sent Events stream for live updates |
+
+**Media (optional):**  
+<!-- ![dashboard overview](docs/images/dashboard.png) -->
+<!-- ![section edit or live refresh](docs/images/dashboard-live.gif) -->
+
+---
+
+### 10. Shell completion
+
+Dynamic tab completion (flags and incident ids) is available via **argcomplete**.
+
+**bash:**
 
 ```bash
 eval "$(register-python-argcomplete mortician)"
 ```
 
-For zsh:
+**zsh:**
 
 ```bash
 eval "$(register-python-argcomplete --shell zsh mortician)"
 ```
 
-After enabling completion, `mortician select <TAB>` (and `mortician edit <TAB>` when you provide `issue_id`) will suggest existing incident ids.
+**Media (optional):**  
+<!-- ![tab completion demo](docs/images/completion.gif) -->
 
-## Tips
+---
 
-- `mortician show <id> | glow -p` works well if you prefer external Markdown viewers.
-- `mortician show <id> | pandoc -o postmortem.pdf` is a simple PDF export path.
-- You can always edit bundle files directly; Mortician will read them on next command.
+### 11. Tips and external tools
+
+- `mortician show <id> | glow -p` — external terminal Markdown preview.
+- `mortician show <id> | pandoc -o postmortem.pdf` — quick PDF export.
+- You may edit bundle files directly; the next CLI or server read will pick up changes.
+
+**Media (optional):**  
+<!-- ![glow or pandoc pipeline](docs/images/pipe-tools.png) -->
+
+-->
+
+---
+
+## Requirements
+
+- **Python** 3.8 or newer (see `pyproject.toml`).
+
+For dependency versions, refer to `[project]` / `[project.optional-dependencies]` in `pyproject.toml`.
