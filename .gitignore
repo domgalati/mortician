@@ -1,8 +1,11 @@
 __pycache__/
 .vscode/
-postmortems/
-mortician/postmortems/
+incidents/
+mortician/incidents/
 .venv/
 venv/
 build/
 *.egg-info/
+old/
+*.log
+*.cast

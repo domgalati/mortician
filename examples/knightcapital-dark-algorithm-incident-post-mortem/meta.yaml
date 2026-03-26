@@ -1,0 +1,14 @@
+id: kcadark
+title: Dark Algorithm Incident
+status: Resolved
+severity: P1
+owner: Trading Engineering / Ops
+created_at: '2026-03-26T10:00:00'
+date: '2012-08-01'
+time: '09:30:00'
+participants:
+- Incident Commander: Trading Ops (demo)
+- Trading Engineering (demo)
+- Market Ops / Monitoring (demo)
+- Risk & Controls (demo)
+- Support / Comms (demo)

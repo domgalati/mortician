@@ -1,0 +1,20 @@
+items:
+- task: Implement status-page automation for mobile-only incident tagging
+  done: false
+  owner: support-oncall
+  due: 04-02-26
+- task: Add CI guard that blocks CDN rule publishes removing auth-related cache key fields
+  done: true
+  owner: web-oncall
+  due: 03-26-26
+  priority: P0
+- task: Ship synthetic mobile checkout canary in each edge region with 60s interval
+  done: false
+  owner: jli
+  due: 03-29-26
+  priority: P1
+- task: Publish responder runbook for edge rollback plus purge verification
+  done: false
+  owner: amendoza
+  due: 03-30-26
+  docs_ref: runbooks/edge-rollback.md

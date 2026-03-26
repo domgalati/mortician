@@ -1,0 +1,62 @@
+events:
+- time: 2026-03-24 17:42 UTC
+  action: |-
+    :rotating_light: PagerDuty triggered on **mobile checkout failure rate**.
+
+    ```text
+    monitor=mobile_checkout_success_rate
+    current=22.4%
+    baseline=98.9%
+    ```
+- time: 2026-03-24 17:43 UTC
+  action: |-
+    Incident declared `SEV-1`, war room opened, and customer support macros activated.
+
+    > We are investigating elevated mobile checkout failures.
+- time: 2026-03-24 17:44 UTC
+  action: |-
+    Traffic split analysis isolated issue to mobile path behind CDN edge.
+
+    | Path | Success |
+    |---|---:|
+    | `/web/checkout` | 98.7% |
+    | `/mobile/checkout` | 21.9% |
+- time: 2026-03-24 17:45 UTC
+  action: |-
+    On-call reviewed edge logs and found stale deny responses being replayed from cache.
+
+    ```text
+    cache_status=HIT policy=deny_stale route=/mobile/checkout
+    ```
+- time: 2026-03-24 17:46 UTC
+  action: |-
+    New CDN rule revision `mobile_checkout_v2` identified as regression trigger.
+
+    ```bash
+    edgectl rules inspect mobile_checkout_v2 --env prod
+    ```
+- time: 2026-03-24 17:47 UTC
+  action: |-
+    Change approved to roll back rule and issue global purge.
+
+    - rollback owner: `web-oncall`
+    - verification owner: `jli`
+- time: 2026-03-24 17:48 UTC
+  action: |-
+    Rollback pushed and purge initiated globally.
+
+    ```text
+    revision=9412 reverted
+    purge objects=413
+    ```
+- time: 2026-03-24 17:49 UTC
+  action: |-
+    Regional health checks turned green in 5/6 regions; APAC lagged by ~45s.
+- time: 2026-03-24 17:50 UTC
+  action: |-
+    :white_check_mark: Incident resolved. Success rate restored above SLO threshold.
+
+    ```text
+    mobile_success_rate=99.1%
+    checkout_p95=410ms
+    ```

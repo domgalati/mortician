@@ -1,0 +1,13 @@
+items:
+- task: Add per-region auth latency alert with 2-minute evaluation window
+  done: false
+  owner: jli
+  due: 03-26-26
+- task: Publish customer support macro update for degraded-login messaging
+  done: false
+  owner: support-oncall
+  due: 03-24-26
+- task: Capture DB replica read saturation snapshots every 5 minutes during incident
+  done: false
+  owner: ppatel
+  due: 03-24-26
