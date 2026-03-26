@@ -8,4 +8,4 @@ build/
 *.egg-info/
 old/
 *.log
-examples/
+*.cast

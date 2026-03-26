@@ -86,7 +86,9 @@ After install, the `mortician` entry point is available on your `PATH`.
 
 ### Incidents Directory
 ---
-Choose where incident bundles are stored. Mortician will use the `MORTICIAN_INCIDENTS_DIR` environment variable if set; otherwise it searches upward from the current working directory for an `incidents/` folder (falling back to the repo’s `incidents/` during development).
+Choose where incident bundles are stored.
+
+Mortician **requires** `MORTICIAN_INCIDENTS_DIR` to be set for `mortician create` (including `--guide`) so incident bundles are never created in surprising locations (like under `site-packages`).
 
 Setting `MORTICIAN_INCIDENTS_DIR` lets you run `mortician` commands from any working directory and still edit the same incident bundles.
 
@@ -143,21 +145,9 @@ This layout is the **single source of truth** for both CLI and web UI.
 
 ---
 
-## Full documentation
+## 1. Full documentation
 
-Command reference and API details live in `DOCS.md`.
-
-<!--
-## Feature sets
-
-Below, each section describes one feature area. Drop in screenshots or GIFs where noted when you have them.
-
-### 1. Bundles and Git-native storage
-
-Incidents are directories of YAML and Markdown, not rows in a remote service. That supports reviewable diffs, backup via Git, and ad-hoc scripting without a custom SDK.
-
-**Media (optional):**  
-<!-- ![Bundle layout in explorer or tree view](docs/images/bundle-tree.png) -->
+Full command reference and API details live in `DOCS.md`.
 
 ---
 
@@ -167,9 +157,7 @@ Incidents are directories of YAML and Markdown, not rows in a remote service. Th
 
 With **`--guide`**, an interactive workflow collects owner, participants, summary (with `$date`, `$utc`, `$host` placeholders), impact, optional severity, timeline entries, and resolution-oriented fields—skipping resolution prompts when you indicate the incident is still ongoing. Interrupting guided mode after create removes the unfinished bundle (see implementation for edge cases).
 
-**Media (optional):**  
-<!-- ![create command and output](docs/images/create.gif) -->
-<!-- ![guided wizard excerpt](docs/images/guide.png) -->
+![create command and output](assets/guide.cast.gif)
 
 ---
 
@@ -180,8 +168,7 @@ Many commands target “the current incident” so you do not repeat ids:
 - `mortician select <issue_id>` sets the active id for subsequent `edit`, `add`, and `action` commands.
 - `mortician select` with no id prints the active incident (id and title when available).
 
-**Media (optional):**  
-<!-- ![select and follow-up edit](docs/images/select.gif) -->
+![select and follow-up edit](assets/select.cast.gif)
 
 ---
 

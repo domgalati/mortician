@@ -164,7 +164,7 @@ Adds one timeline entry to the active incident.
 
 - If stdin is piped and `--action` is not provided, Mortician will:
   - try to extract a timestamp from the piped text as `Stamp (...)` (if parsing succeeds)
-  - prompt for time with `Stamp (...)`, `Now (...)`, and `Enter manually` (when `questionary` is installed)
+  - prompt for time with `Stamp (...)`, `Now (...)`, and `Enter manually`
   - prefill the `What happened?` editor: by default with the piped text only. The shell does **not** pass the command on the left of the pipe (e.g. `uptime` in `uptime | mortician add`). To record that command in the entry, use **`--cmd`** (e.g. `uptime | mortician add --cmd uptime`), or set **`MORTICIAN_ADD_CMD`**, or answer the optional **Command (optional, Enter to skip):** prompt when a TTY is available. The saved text is then a minimal block: `$ <cmd>`, a blank line, then the piped output.
 - If timestamp parsing fails, the `Stamp (...)` option is omitted, but `What happened?` is still prefilled.
 

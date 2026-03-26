@@ -9,6 +9,8 @@ import sys
 import subprocess
 import tempfile
 import shutil
+import questionary
+from rich.console import Console
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AbstractSet, Any, Dict, List, Optional, Sequence, Tuple
@@ -110,8 +112,9 @@ def _read_multiline_block_default(heading: str, default_value: Optional[str]) ->
     """Read lines until a blank line; return default if first line is blank."""
     print(heading)
     if default_value is not None and str(default_value).strip():
-        print(f"Default: {default_value}")
-        print("(Press Enter on an empty first line to accept the default.)")
+        #print(f"Default: {default_value}")
+        #print("(Press Enter on an empty first line to accept the default.)")
+        pass
     else:
         print("(Enter a blank line when finished.)")
 
@@ -137,14 +140,6 @@ def _inject_variable_tokens(text: str, token_values: Dict[str, str]) -> str:
     for token, value in token_values.items():
         out = out.replace(token, value)
     return out
-
-
-def _questionary_module():
-    try:
-        import questionary  # type: ignore[import-untyped]
-    except ImportError:
-        return None
-    return questionary
 
 
 def _get_editor_command() -> Sequence[str]:
@@ -509,7 +504,7 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
         # Write back canonical files (unknown extra files remain untouched).
         write_index_md_atomic(bundle_dir, parsed["index.md"])
         for yaml_name in ("meta.yaml", "timeline.yaml", "actions.yaml"):
-            _write_text_atomic(bundle_dir / yaml_name, parsed[yaml_name])
+            write_text_atomic(bundle_dir / yaml_name, parsed[yaml_name])
 
         print(f"Postmortem '{issue_id}' updated successfully.")
         return
@@ -775,48 +770,43 @@ def edit_postmortem_stateful(issue_id: str, args: Any, *, EDITOR_SENTINEL: str) 
 
 
 def _prompt_duration_of_outage(q: Any) -> str:
-    """Duration: questionary presets or plain input."""
-    if q is not None:
-        try:
-            choice = q.select(
-                "Duration of outage:",
-                choices=[
-                    "15m",
-                    "1h",
-                    "4h",
-                    "Custom (type below)",
-                    "Skip (leave blank)",
-                ],
-            ).ask()
-            if choice is None or choice == "Skip (leave blank)":
-                return ""
-            if choice == "Custom (type below)":
-                custom = q.text("Duration (free text):").ask()
-                return (custom or "").strip()
-            return choice
-        except (EOFError, KeyboardInterrupt):
-            print()
+    """Duration: questionary presets."""
+    try:
+        choice = q.select(
+            "Duration of outage:",
+            choices=[
+                "15m",
+                "1h",
+                "4h",
+                "Custom (type below)",
+                "Skip (leave blank)",
+            ],
+        ).ask()
+        if choice is None or choice == "Skip (leave blank)":
             return ""
-    return input("Duration of outage: ").strip()
+        if choice == "Custom (type below)":
+            custom = q.text("Duration (free text):").ask()
+            return (custom or "").strip()
+        return choice
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
 
 
 def _prompt_timeline_time(q: Any, default_ts: str) -> str:
-    if q is not None:
-        try:
-            now_label = f"Now ({default_ts})"
-            choice = q.select(
-                "Time for this entry:",
-                choices=[now_label, "Enter manually"],
-            ).ask()
-            if choice is None or choice == now_label:
-                return default_ts
-            manual = q.text("Time:", default=default_ts).ask()
-            return (manual or default_ts).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
+    try:
+        now_label = f"Now ({default_ts})"
+        choice = q.select(
+            "Time for this entry:",
+            choices=[now_label, "Enter manually"],
+        ).ask()
+        if choice is None or choice == now_label:
             return default_ts
-    t_in = input(f"Time [{default_ts}]: ").strip()
-    return t_in if t_in else default_ts
+        manual = q.text("Time:", default=default_ts).ask()
+        return (manual or default_ts).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default_ts
 
 
 def _prompt_yes_no(prompt: str) -> bool:
@@ -850,7 +840,8 @@ def _prompt_yes_no_default(prompt: str, *, default_yes: bool) -> bool:
 def guided_input():
     """Interactive prompt for postmortem creation (live-incident friendly order)."""
     data = copy.deepcopy(DEFAULT_POSTMORTEM)
-    q = _questionary_module()
+    q = questionary
+    console = Console()
 
     # Stable token values for this guided session.
     host = socket.gethostname()
@@ -862,17 +853,19 @@ def guided_input():
         "$host": host,
     }
 
-    print("\n=== Guided incident setup ===")
+    console.print("\n[bold cyan]=== Guided incident setup ===[/bold cyan]")
 
     data["incident_owner"] = input("Incident owner: ").strip()
     raw_parts = input("Participants (comma-separated, optional): ").strip()
     data["incident_participants"] = [p.strip() for p in raw_parts.split(",") if p.strip()]
 
-    print()
-    print("--- Incident summary ---")
-    print(
-        "You can use placeholders as described below: "
-        f"$date: {local_date}, $utc: {utc_iso}, $host: {host}."
+    console.print()
+    console.print("[bold cyan]--- Incident summary ---[/bold cyan]")
+    console.print(
+        "Available aliases: "
+        f"[bold green]$date[/bold green]: [dim]{local_date}[/dim], "
+        f"[bold green]$utc[/bold green]: [dim]{utc_iso}[/dim], "
+        f"[bold green]$host[/bold green]: [dim]{host}[/dim]."
     )
     summary_template = "Investigating issue on $host which started on $date (UTC: $utc)."
     summary_default = _inject_variable_tokens(summary_template, token_values)
@@ -883,7 +876,7 @@ def guided_input():
     data["incident_summary"] = _inject_variable_tokens(summary_raw, token_values)
     incident_ongoing = _prompt_yes_no("Is the incident still ongoing? (y/n): ")
 
-    print("\n=== Impact & severity (optional; blank lines skip) ===")
+    console.print("\n[bold cyan]=== Impact & severity ===[/bold cyan] [dim](optional; blank lines skip)[/dim]")
     data["impact_and_severity"]["affected_services"] = input("Affected services: ").strip()
     if incident_ongoing:
         # During a live incident, don't force duration/business impact answers.
@@ -897,7 +890,7 @@ def guided_input():
     if sev:
         data["overview"]["severity"] = sev
 
-    print("\n=== Timeline (while the incident is unfolding) ===")
+    console.print("\n[bold cyan]=== Timeline ===[/bold cyan] [dim](while the incident is unfolding)[/dim]")
     while True:
         tl_choice = input("Add a timeline entry now? (y/n): ").strip().lower()
         if tl_choice == "y":
@@ -912,29 +905,29 @@ def guided_input():
         elif tl_choice == "n":
             break
         else:
-            print("Please enter y or n.")
+            console.print("[yellow]Please enter y or n.[/yellow]")
 
     if incident_ongoing:
         data["overview"]["status"] = DEFAULT_STATUS
-        print(
+        console.print(
             f"\nIncident marked as {DEFAULT_STATUS} (ongoing). "
-            "Skipping resolution prompts for now."
+            "[dim]Skipping resolution prompts for now.[/dim]"
         )
     else:
-        print("\n=== Analysis (optional during live response) ===")
+        console.print("\n[bold cyan]=== Analysis ===[/bold cyan] [dim](optional during live response)[/dim]")
         rc = input("Root cause (optional; Enter to skip for now): ").strip()
         data["root_cause"] = rc
 
         while True:
-            print("\n=== Status ===")
+            console.print("\n[bold cyan]=== Status ===[/bold cyan]")
             statuses = all_status_labels()
             for idx, label in enumerate(statuses, start=1):
-                print(f"{idx}. {label}")
+                console.print(f"[bold]{idx}.[/bold] [magenta]{label}[/magenta]")
             status_choice = input(f"Enter choice (1-{len(statuses)}): ").strip()
             try:
                 selected = statuses[int(status_choice) - 1]
             except (ValueError, IndexError):
-                print(f"Invalid choice. Please select 1-{len(statuses)}.")
+                console.print(f"[yellow]Invalid choice. Please select 1-{len(statuses)}.[/yellow]")
                 continue
             data["overview"]["status"] = selected
             if normalize_status(selected) == TEMPORARY_STATUS:
@@ -1150,7 +1143,7 @@ def add_timeline_entry_interactive(
 
     Used by `mortician add` (stateful) to avoid forcing `issue_id` each time.
     """
-    q = _questionary_module()
+    q = questionary
     now_iso_ms = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
     if now_iso_ms.endswith("+00:00"):
         now_iso_ms = now_iso_ms[: -len("+00:00")]
@@ -1314,37 +1307,32 @@ def _prompt_timeline_time_with_stamp(
     stamp_ts: Optional[str],
 ) -> str:
     """
-    Time prompt that supports Stamp/Now/Enter-manually when `questionary` is available.
+    Time prompt that supports Stamp/Now/Enter-manually.
     """
-    if q is not None:
-        choices: List[str] = []
-        if stamp_ts:
-            choices.append(f"Stamp ({stamp_ts})")
-        choices.append(f"Now ({default_ts})")
-        choices.append("Enter manually")
-
-        try:
-            choice = q.select(
-                "Time for this entry:",
-                choices=choices,
-            ).ask()
-        except (EOFError, KeyboardInterrupt):
-            return default_ts
-
-        if choice is None:
-            return default_ts
-        if stamp_ts and choice.startswith("Stamp ("):
-            return stamp_ts
-        if choice.startswith("Now ("):
-            return default_ts
-
-        manual = q.text("Time:", default=default_ts).ask()
-        return (manual or default_ts).strip()
-
-    # No questionary: follow plan's behavior.
+    choices: List[str] = []
     if stamp_ts:
+        choices.append(f"Stamp ({stamp_ts})")
+    choices.append(f"Now ({default_ts})")
+    choices.append("Enter manually")
+
+    try:
+        choice = q.select(
+            "Time for this entry:",
+            choices=choices,
+        ).ask()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default_ts
+
+    if choice is None:
+        return default_ts
+    if stamp_ts and choice.startswith("Stamp ("):
         return stamp_ts
-    return default_ts
+    if choice.startswith("Now ("):
+        return default_ts
+
+    manual = q.text("Time:", default=default_ts).ask()
+    return (manual or default_ts).strip()
 
 
 def slugify(text):

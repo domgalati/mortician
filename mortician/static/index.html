@@ -493,7 +493,7 @@
     .action-body {
       flex: 1;
       min-width: 0;
-      cursor: pointer;
+      cursor: text;
       border-radius: 6px;
       padding: 0.2rem 0.45rem;
       margin: -0.2rem -0.45rem;
@@ -552,11 +552,12 @@
       margin: 0;
       border-left: 2px solid var(--border);
     }
-    .timeline li {
+    /* Only top-level timeline rows — not <li> inside markdown in .timeline-body */
+    .timeline > li {
       padding: 0.45rem 0 0.45rem 1rem;
       position: relative;
     }
-    .timeline li::before {
+    .timeline > li::before {
       content: "";
       position: absolute;
       left: -5px;
@@ -582,6 +583,9 @@
       gap: 0.45rem;
       flex-wrap: wrap;
     }
+    .btn-timeline-row-edit {
+      margin-left: auto;
+    }
     .timeline-rel {
       font-size: 0.73rem;
       color: var(--muted);
@@ -589,7 +593,7 @@
     .timeline .a { margin-top: 0.15rem; }
     .timeline .a.md { font-size: 0.9rem; }
     .timeline .timeline-body {
-      cursor: pointer;
+      cursor: text;
       border-radius: 6px;
       padding: 0.2rem 0.45rem;
       margin: -0.2rem -0.45rem;
@@ -1135,13 +1139,13 @@
           (done ? " checked" : "") +
           " />" +
           "</label>" +
-          '<div class="action-body" tabindex="0" role="button" title="Click to edit task, owner, and due">' +
+          '<div class="action-body">' +
           '<div class="action-display">' +
           '<div class="act-title">' +
           esc(taskLine) +
           "</div>" +
           metaHtml +
-          "</div></div></li>"
+          '</div></div><button type="button" class="btn-edit-section btn-action-row-edit" title="Edit task, owner, and due">Edit</button></li>'
         );
       });
       return '<ul class="actions-list">' + items.join("") + "</ul>";
@@ -1642,42 +1646,24 @@
         });
         return;
       }
-      const tb = e.target.closest(".timeline-body");
-      if (tb && !tb.querySelector(".action-edit-form")) {
+      if (e.target.closest(".btn-timeline-row-edit")) {
         e.preventDefault();
-        openTimelineRowEditor(tb);
+        const row = e.target.closest(".timeline-row");
+        const tb = row && row.querySelector(".timeline-body");
+        if (tb && !tb.querySelector(".action-edit-form")) openTimelineRowEditor(tb);
         return;
       }
-      const ab = e.target.closest(".action-body");
-      if (ab && !ab.querySelector(".action-edit-form")) {
+      if (e.target.closest(".btn-action-row-edit")) {
         e.preventDefault();
-        openActionRowEditor(ab);
-        return;
-      }
-      const mdWrap = e.target.closest(".md-editable[data-section]");
-      if (mdWrap && !mdWrap.classList.contains("is-editing") && mdWrap.dataset.section) {
-        e.preventDefault();
-        startEdit(mdWrap.dataset.section);
+        const row = e.target.closest(".action-row");
+        const ab = row && row.querySelector(".action-body");
+        if (ab && !ab.querySelector(".action-edit-form")) openActionRowEditor(ab);
         return;
       }
       const btn = e.target.closest(".btn-edit-section");
       if (!btn || !btn.dataset.section) return;
       e.preventDefault();
       startEdit(btn.dataset.section);
-    });
-
-    mainEl.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
-      const ab = e.target.closest(".action-body");
-      if (ab && !ab.querySelector(".action-edit-form")) {
-        e.preventDefault();
-        openActionRowEditor(ab);
-        return;
-      }
-      const tb = e.target.closest(".timeline-body");
-      if (!tb || tb.querySelector(".action-edit-form")) return;
-      e.preventDefault();
-      openTimelineRowEditor(tb);
     });
 
     mainEl.addEventListener("change", async (e) => {
@@ -1930,7 +1916,7 @@
             esc(timeVal || "—") +
             '</div><span class="timeline-rel">' +
             esc(relLabel(dt)) +
-            '</span></div><div class="a md timeline-body" tabindex="0" role="button" title="Click to edit timeline event">' +
+            '</span><button type="button" class="btn-edit-section btn-timeline-row-edit" title="Edit this timeline event">Edit</button></div><div class="a md timeline-body">' +
             renderMd(body) +
             "</div></li>"
           );

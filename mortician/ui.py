@@ -93,10 +93,38 @@ def show_postmortem(
                 print(f"No postmortems found with date '{date_filter}'.")
                 return
 
+        # Pretty table in interactive terminals; TSV-style output for pipes/scripts.
+        interactive = sys.stdout.isatty()
+        if interactive:
+            try:
+                from rich.console import Console
+                from rich.table import Table
+            except ImportError:
+                interactive = False
+
+        if interactive:
+            table = Table(title="Mortician Postmortems", show_lines=False)
+            table.add_column("ID", style="cyan", no_wrap=True)
+            table.add_column("Title", style="white")
+            table.add_column("Status", style="magenta", no_wrap=True)
+            table.add_column("Date", style="green", no_wrap=True)
+            for pm in all_postmortems:
+                table.add_row(
+                    str(pm.get("id") or ""),
+                    str(pm.get("title") or ""),
+                    str(pm.get("status") or ""),
+                    str(pm.get("date") or ""),
+                )
+            Console().print(table)
+            return
+
+        # Fallback: stable, parseable output.
         print("Mortician Postmortems:")
-        print(f"{'ID':<15} {'Title':<30} {'Status':<15} {'Date':<15}")
-        print("-" * 75)
+        print("ID\tTitle\tStatus\tDate")
         for pm in all_postmortems:
-            truncated_title = pm['title'][:28] + ".." if len(pm['title']) > 30 else pm['title']
-            truncated_status = pm['status'][:13] + ".." if len(pm['status']) > 15 else pm['status']
-            print(f"{pm['id']:<15} {truncated_title:<30} {truncated_status:<15} {pm['date']:<15}")
+            print(
+                f"{str(pm.get('id') or '')}\t"
+                f"{str(pm.get('title') or '')}\t"
+                f"{str(pm.get('status') or '')}\t"
+                f"{str(pm.get('date') or '')}"
+            )

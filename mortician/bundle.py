@@ -14,6 +14,27 @@ import yaml
 from .templates import DEFAULT_POSTMORTEM
 from .statuses import DEFAULT_STATUS
 
+_INCIDENTS_DIR_ENV = "MORTICIAN_INCIDENTS_DIR"
+
+
+def _require_incidents_dir_env() -> Path:
+    """
+    Require an explicit incidents directory for write operations.
+
+    We intentionally do *not* allow creates to fall back to a repo-relative path,
+    because in installed environments that can resolve under site-packages.
+    """
+    raw = (os.environ.get(_INCIDENTS_DIR_ENV) or "").strip()
+    if not raw:
+        raise RuntimeError(
+            f"{_INCIDENTS_DIR_ENV} is not set.\n"
+            f"Set it to the folder where incident bundles should be created, e.g.:\n"
+            f"  export {_INCIDENTS_DIR_ENV}=/path/to/incidents   # bash/zsh\n"
+            f"  setx {_INCIDENTS_DIR_ENV} \"C:\\path\\to\\incidents\"  # Windows\n"
+        )
+    return Path(raw)
+
+
 def _resolve_incidents_dir() -> Path:
     """
     Resolve the incidents root in a shell-agnostic way.
@@ -180,9 +201,11 @@ def _next_collision_suffix(issue_id: str, title: str) -> str:
 
 def new_bundle_path(issue_id: str, title: str) -> Path:
     """Compute a new bundle directory path for create; does not mkdir."""
-    INCIDENTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Require explicit env to avoid surprising writes under site-packages.
+    env_dir = _require_incidents_dir_env()
+    env_dir.mkdir(parents=True, exist_ok=True)
     name = _next_collision_suffix(issue_id, title)
-    return INCIDENTS_DIR / name
+    return env_dir / name
 
 
 def list_bundle_dirs() -> List[Path]:
@@ -209,6 +232,8 @@ def list_incident_summaries() -> List[Dict[str, Any]]:
         iid = meta.get("id")
         if not iid:
             continue
+        # Absolute path for CLI list output / scripts.
+        bundle_dir = str(bundle.resolve())
         unresolved_actions = _count_unresolved_actions(bundle)
         rows.append(
             {
@@ -217,6 +242,7 @@ def list_incident_summaries() -> List[Dict[str, Any]]:
                 "status": meta.get("status", ""),
                 "date": meta.get("date", ""),
                 "unresolved_actions": unresolved_actions,
+                "bundle_dir": bundle_dir,
             }
         )
     return rows
@@ -606,6 +632,7 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
     """Create a new incident bundle directory with default files."""
     if find_bundle_dir(issue_id):
         raise ValueError(f"Postmortem '{issue_id}' already exists.")
+    _require_incidents_dir_env()
     bundle = new_bundle_path(issue_id, title)
     if bundle.exists():
         raise ValueError(f"Directory already exists: {bundle}")
