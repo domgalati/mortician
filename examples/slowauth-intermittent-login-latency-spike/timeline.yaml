@@ -1,0 +1,19 @@
+events:
+- time: 2026-03-24 18:18 UTC
+  action: Support reported first cluster of "slow login" complaints from `us-west`.
+- time: 2026-03-24 18:20 UTC
+  action: |-
+    On-call confirmed elevated p95 latency on login route.
+
+    ```text
+    /v1/auth/login p95=1.82s p99=3.11s error_rate=0.3%
+    ```
+- time: 2026-03-24 18:22 UTC
+  action: Incident opened as `SEV-3` (degraded performance, no hard outage).
+- time: 2026-03-24 18:24 UTC
+  action: Applied cache warming job and started replica load rebalance.
+- time: 2026-03-24 18:27 UTC
+  action: |-
+    Seeing partial recovery:
+    - p95 now ~1.2s
+    - error rate unchanged (<0.5%)

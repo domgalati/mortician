@@ -684,23 +684,11 @@ def create_bundle(issue_id: str, title: str, initial: Optional[Dict[str, Any]] =
     )
     (bundle / INDEX_FILENAME).write_text(index_md, encoding="utf-8")
 
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    default_timeline = [
-        {
-            "time": ts,
-            "action": "Replace this row: describe what happened on the incident timeline.",
-        }
-    ]
-    default_actions = [
-        {
-            "task": "(Edit) Describe this follow-up checklist item.",
-            "done": False,
-            "owner": "",
-            "due": "",
-        }
-    ]
-    _write_timeline(bundle, default_timeline)
-    _write_actions(bundle, default_actions)
+    # Start with no timeline/action entries.
+    # Guided mode overwrites these with user-provided entries; non-guide mode
+    # should not persist placeholders in new bundles.
+    _write_timeline(bundle, [])
+    _write_actions(bundle, [])
 
     return bundle
 

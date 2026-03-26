@@ -1183,11 +1183,6 @@ def add_timeline_entry_interactive(
                 cmd_resolved = (piped_command or "").strip()
                 if not cmd_resolved:
                     cmd_resolved = (os.environ.get("MORTICIAN_ADD_CMD") or "").strip()
-                if not cmd_resolved and tty_in is not None:
-                    try:
-                        cmd_resolved = input("Command (optional, Enter to skip): ").strip()
-                    except EOFError:
-                        cmd_resolved = ""
                 seed = _format_piped_capture(cmd_resolved, stdin_text or "")
             else:
                 seed = stdin_text or ""

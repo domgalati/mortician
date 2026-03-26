@@ -1,3 +1,15 @@
+## Philosophy
+
+- **Humans and machines share one format.** The same bundle powers terminal interaction, a local web UI, and a small HTTP API for integrations.
+- **Git is a first-class home.** Small, structured files produce readable diffs, audit trails, and branching or review workflows that match how engineering teams already work.
+- **Tools stay optional.** Editors, scripts, `grep`, and CI can operate on the bundle directly. The CLI and dashboard are conveniences layered on the same source of truth.
+- **Capture directly from your command pipeline.** Pipe stdout/stderr into timeline entries with `mortician add`, so evidence becomes an event on the timeline immediately.
+- **A live page for quick status checks.** Run `mortician serve` and keep the dashboard open; as the incident files under `incidents/` change, the page updates in near-real time (via live SSE events), so stakeholders can see the latest timeline/actions/state just by checking the dashboard.
+
+One mental model covers the whole tool: **one incident is one bundle directory** under `incidents/`. Every command reads or updates that bundle.
+
+---
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
@@ -165,7 +177,7 @@ Adds one timeline entry to the active incident.
 - If stdin is piped and `--action` is not provided, Mortician will:
   - try to extract a timestamp from the piped text as `Stamp (...)` (if parsing succeeds)
   - prompt for time with `Stamp (...)`, `Now (...)`, and `Enter manually`
-  - prefill the `What happened?` editor: by default with the piped text only. The shell does **not** pass the command on the left of the pipe (e.g. `uptime` in `uptime | mortician add`). To record that command in the entry, use **`--cmd`** (e.g. `uptime | mortician add --cmd uptime`), or set **`MORTICIAN_ADD_CMD`**, or answer the optional **Command (optional, Enter to skip):** prompt when a TTY is available. The saved text is then a minimal block: `$ <cmd>`, a blank line, then the piped output.
+- prefill the `What happened?` editor: by default with the piped text only. The shell does **not** pass the command on the left of the pipe (e.g. `uptime` in `uptime | mortician add`). To record that command in the entry, use **`--cmd`** (e.g. `uptime | mortician add --cmd uptime`) or set **`MORTICIAN_ADD_CMD`**. (Mortician no longer prompts interactively for the command when stdin is piped.) The saved text is then a minimal block: `$ <cmd>`, a blank line, then the piped output.
 - If timestamp parsing fails, the `Stamp (...)` option is omitted, but `What happened?` is still prefilled.
 
 ### `timeline add`

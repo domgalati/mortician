@@ -1,0 +1,25 @@
+items:
+- task: Confirm incident timeline accuracy against primary sources
+  done: true
+  owner: Trading Engineering
+  due: '2012-08-20'
+- task: Add release canary that verifies “engine enablement” config end-to-end
+  done: true
+  owner: Platform Engineering
+  due: '2012-09-15'
+- task: Implement a kill switch that halts all concurrently running engines (not just one)
+  done: true
+  owner: Trading Engineering
+  due: '2012-10-01'
+- task: Add order-flow anomaly detection (message rate, cancels/replace ratio, symbol-scope)
+  done: true
+  owner: Monitoring & Alerting
+  due: '2012-10-15'
+- task: Harden risk checks so “cancel/replace storms” fail closed
+  done: true
+  owner: Risk & Controls
+  due: '2012-11-01'
+- task: Document rollback + operator runbook with game-day drills
+  done: true
+  owner: Operations
+  due: '2012-12-01'

@@ -1,0 +1,17 @@
+events:
+- time: 2012-08-01 13:29 UTC
+  action: Scheduled software changes deployed to production (exact sequence varies by source; demo timeline uses the widely reported “morning deployment” window).
+- time: 2012-08-01 13:30 UTC
+  action: Market open; trading engines become eligible to route orders. First signs of unexpected order activity begin (best-effort guess).
+- time: 2012-08-01 13:31 UTC
+  action: Order rate and breadth increase beyond normal baselines; cancellations/replaces start to diverge from expected patterns.
+- time: 2012-08-01 13:34 UTC
+  action: Monitoring/ops notice abnormal fills and rapid order churn; initial triage starts.
+- time: 2012-08-01 13:41 UTC
+  action: Operators attempt to disable the problematic component. The “kill switch” does not fully cover all concurrently running engines (demo inference from multiple public retellings).
+- time: 2012-08-01 13:56 UTC
+  action: Trading is halted more comprehensively and/or gateways are disabled; order flow drops sharply and uncontrolled trading stops.
+- time: 2012-08-01 14:10 UTC
+  action: Positions begin to be unwound/hedged; realized losses crystallize.
+- time: 2012-08-01 14:30 UTC
+  action: Incident declared under control; post-event communications and escalation toward recapitalization and systemic fixes begin.

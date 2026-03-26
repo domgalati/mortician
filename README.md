@@ -2,18 +2,18 @@
 
 Mortician is built on the idea that **the best postmortem is the one you record while the incident is still happening**, not the narrative reconstructed days later from Slack scrollback and bad memory.
 
+![intro gif](assets/intro.gif)
+
 To make that practical, Mortician keeps each incident as a **small folder of plain files**—mostly Markdown and YAML—rather than a single opaque document or a proprietary database. That choice drives everything else:
 
+## What you get at a glance
 
-- **Humans and machines share one format.** The same bundle powers terminal interaction, a local web UI, and a small HTTP API for integrations.
-- **Git is a first-class home.** Small, structured files produce readable diffs, audit trails, and branching or review workflows that match how engineering teams already work.
-- **Tools stay optional.** Editors, scripts, `grep`, and CI can operate on the bundle directly. The CLI and dashboard are conveniences layered on the same source of truth.
-- **Capture directly from your command pipeline.** Pipe stdout/stderr into timeline entries with `mortician add`, so evidence becomes an event on the timeline immediately.
-- **A live page for quick status checks.** Run `mortician serve` and keep the dashboard open; as the incident files under `incidents/` change, the page updates in near-real time (via live SSE events), so stakeholders can see the latest timeline/actions/state just by checking the dashboard.
+- **CLI** for creating incidents, editing metadata and narrative fields, appending timeline and action items, listing and exporting.
+- **Local dashboard** (`mortician serve`) with live refresh when files under `incidents/` change.
+- **HTTP + SSE API** for summaries, full JSON, section updates, actions, assets, and ZIP export.
+- **Readable on-disk format** you can open in any editor or track in version control.
 
-One mental model covers the whole tool: **one incident is one bundle directory** under `incidents/`. Every command reads or updates that bundle.
 
----
 
 ## Table of Contents
 
@@ -84,8 +84,10 @@ For a normal end-user install once published, use the same pattern with your pac
 
 After install, the `mortician` entry point is available on your `PATH`.
 
+### Tab Completion
+It is highly recommended to enable tab completion for mortician. See [10. Shell completion](#10-shell-completion) for instructions.
+
 ### Incidents Directory
----
 Choose where incident bundles are stored.
 
 Mortician **requires** `MORTICIAN_INCIDENTS_DIR` to be set for `mortician create` (including `--guide`) so incident bundles are never created in surprising locations (like under `site-packages`).
@@ -101,7 +103,6 @@ Example (PowerShell):
 ```powershell
 $env:MORTICIAN_INCIDENTS_DIR="C:\path\to\your\incidents"
 ```
----
 
 ## Optional dependencies
 
@@ -119,16 +120,6 @@ Environment variable (no extra package):
 | `MORTICIAN_ADD_CMD` | When piping into `mortician add`, can supply the command string to record alongside captured output (see [Timeline capture](#5-timeline-capture)). |
 
 ---
-
-## What you get at a glance
-
-- **CLI** for creating incidents, editing metadata and narrative fields, appending timeline and action items, listing and exporting.
-- **Local dashboard** (`mortician serve`) with live refresh when files under `incidents/` change.
-- **HTTP + SSE API** for summaries, full JSON, section updates, actions, assets, and ZIP export.
-- **Readable on-disk format** you can open in any editor or track in version control.
-
----
-
 ## Data layout
 
 Each incident lives at `incidents/{id}-{title-slug}/`.
@@ -184,19 +175,12 @@ Many commands target “the current incident” so you do not repeat ids:
 
 Setting status to **Resolved** can trigger prompts for missing required fields: Rich prompts in a TTY, with a non-TTY fallback.
 
-**Media (optional):**  
-<!-- ![edit flags vs open in editor](docs/images/edit.gif) -->
-
 ---
 
 ### 5. Timeline capture
 
 - **`mortician timeline add <issue_id>`** appends one event; `--time` defaults to current UTC; `--action` or stdin supplies the body.
 - **`mortician add`** appends to the **active** incident with an interactive flow. Piped stdin can capture command output; use **`--cmd`** (or `MORTICIAN_ADD_CMD`) because the shell does not pass the left-hand command through the pipe.
-
-**Media (optional):**  
-<!-- ![timeline add one-liner vs stdin](docs/images/timeline.gif) -->
-<!-- ![piped add with --cmd](docs/images/add-pipe.gif) -->
 
 ---
 
@@ -210,18 +194,12 @@ Setting status to **Resolved** can trigger prompts for missing required fields: 
 
 The dashboard API can also append or patch action rows (see below).
 
-**Media (optional):**  
-<!-- ![action list and done](docs/images/actions.gif) -->
-
 ---
 
 ### 7. Listing, filtering, and export
 
 - **`mortician list`** and **`mortician show`** (without an id) list incidents with optional `--status` (case-insensitive) and `--date YYYY-MM-DD`.
 - **`mortician show <id>`** prints one incident as Markdown (default: raw text, ideal for `>` redirection and pipes).
-
-**Media (optional):**  
-<!-- ![list with filters](docs/images/list.png) -->
 
 ---
 
@@ -231,9 +209,6 @@ The dashboard API can also append or patch action rows (see below).
 - **`--render` / `--render rich`** uses Rich in the terminal.
 - **`--render textual`** uses the Textual fullscreen viewer (**requires** `mortician[textual]` and an interactive TTY).
 
-**Media (optional):**  
-<!-- ![show --render rich](docs/images/show-rich.png) -->
-<!-- ![show --render textual](docs/images/show-textual.gif) -->
 
 ---
 
@@ -255,9 +230,6 @@ The dashboard API can also append or patch action rows (see below).
 | GET | `/api/postmortems/{issue_id}/assets/{asset_path}` | Serve from `assets/` (path traversal blocked) |
 | GET | `/api/events` | Server-Sent Events stream for live updates |
 
-**Media (optional):**  
-<!-- ![dashboard overview](docs/images/dashboard.png) -->
-<!-- ![section edit or live refresh](docs/images/dashboard-live.gif) -->
 
 ---
 
@@ -277,9 +249,6 @@ eval "$(register-python-argcomplete mortician)"
 eval "$(register-python-argcomplete --shell zsh mortician)"
 ```
 
-**Media (optional):**  
-<!-- ![tab completion demo](docs/images/completion.gif) -->
-
 ---
 
 ### 11. Tips and external tools
@@ -288,8 +257,6 @@ eval "$(register-python-argcomplete --shell zsh mortician)"
 - `mortician show <id> | pandoc -o postmortem.pdf` — quick PDF export.
 - You may edit bundle files directly; the next CLI or server read will pick up changes.
 
-**Media (optional):**  
-<!-- ![glow or pandoc pipeline](docs/images/pipe-tools.png) -->
 
 -->
 
