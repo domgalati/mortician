@@ -11,7 +11,7 @@ To make that practical, Mortician keeps each incident as a **small folder of pla
 ## What you get at a glance
 
 - **CLI** for creating incidents, editing metadata and narrative fields, appending timeline and action items, listing and exporting.
-- **Local dashboard** (`mortician serve`) with live refresh when files under `incidents/` change.
+- **Local dashboard** (`mortician serve`) with live refresh when files under `incidents/` change. Silence distracting DM's and Slack mentions from needy stakeholders! Just provide a link to a live updating dashboard with the latest information. 
 - **HTTP + SSE API** for summaries, full JSON, section updates, actions, assets, and ZIP export.
 - **Readable on-disk format** you can open in any editor or track in version control.
 
