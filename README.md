@@ -1,12 +1,12 @@
 # Mortician
 
-Mortician is a CLI + local web dashboard for incident/postmortem capture stored as plain files.
+Mortician is a CLI + local web dashboard for incident/postmortem capture stored as plain files. See `/examples` directory for a better picture. 
 
 Mortician is built on the idea that **the best postmortem is the one you record while the incident is still happening**, not the narrative reconstructed days later from Slack scrollback and bad memory.
 
 ![intro gif](assets/intro.gif)
 
-To make that practical, Mortician keeps each incident as a **small folder of plain files**—mostly Markdown and YAML—rather than a single opaque document or a proprietary database. That choice drives everything else:
+To make that practical, Mortician keeps each incident as a **small folder of plain files**—mostly Markdown and YAML—rather than a single opaque document or a proprietary database. That choice drives everything else. 
 
 ## What you get at a glance
 
