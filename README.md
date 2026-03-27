@@ -156,8 +156,6 @@ Many commands target “the current incident” so you do not repeat ids:
 - `mortician select <issue-id>` sets the active id for subsequent `edit`, `add`, and `action` commands.
 - `mortician select` with no id prints the active incident (id and title when available).
 
-![select and follow-up edit](assets/select.cast.gif)
-
 ---
 
 ### 4. Editing incidents
